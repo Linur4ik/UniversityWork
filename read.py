@@ -1,7 +1,25 @@
 import pydicom
 from typing import Dict, Optional, List
 
-
+def read_bits_from_mask(image, mask, bits_per_pixel=16):
+    """
+    Извлекает биты из доступных областей изображения.
+    :param image: Изображение с записанными битами (numpy array).
+    :param mask: Маска (True = скрытая область, False = доступная для записи).
+    :param bits_per_pixel: Количество бит на пиксель (8 для uint8, 16 для uint16).
+    :return: Битовая строка.
+    """
+    flat_image = image.flatten()
+    flat_mask = mask.flatten()
+    
+    bitstream = ''
+    for i in range(len(flat_image)):
+        if not flat_mask[i]:
+            # Извлекаем биты из пикселя
+            bits = format(flat_image[i], f'0{bits_per_pixel}b')
+            bitstream += bits
+    
+    return bitstream
 
 
 def read_shutter_parameters(dcm_path: str) -> Optional[Dict]:

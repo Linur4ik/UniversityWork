@@ -3,7 +3,7 @@ import numpy as np
 from datetime import datetime
 from generate import *
 from read import *
-
+from operation import *
 
 class TestDICOMReversibility(unittest.TestCase):
     def test_metadata_reversibility(self):
