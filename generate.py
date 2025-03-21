@@ -1,12 +1,31 @@
 import numpy as np
 from matplotlib.path import Path
-import struct
+from typing import Dict, Tuple
 from codecs import decode
 
 
 
-def generate_shutter_mask(image_shape, shutter_params):
-    """Создание маски на основе параметров шторки (включая полигональную)"""
+
+def generate_shutter_mask(
+    image_shape: Tuple[int, int], 
+    shutter_params: Dict
+    ) -> np.ndarray:
+    """Генерирует бинарную маску области изображения, закрытую шторкой.
+    
+    Поддерживает типы: прямоугольная, круговая и полигональная шторки.
+
+    Args:
+        image_shape: Размер изображения (высота, ширина)
+        shutter_params: Словарь параметров шторки:
+            - type: Тип шторки (RECTANGULAR/CIRCULAR/POLYGONAL)
+            - Дополнительные параметры в зависимости от типа
+
+    Returns:
+        np.ndarray: Бинарная маска (True - открытая область, False - закрытая)
+
+    Raises:
+        ValueError: При указании неподдерживаемого типа шторки
+    """
     mask = np.ones(image_shape, dtype=bool)
     h, w = image_shape
     
@@ -34,40 +53,10 @@ def generate_shutter_mask(image_shape, shutter_params):
         y, x = np.mgrid[:image_shape[0], :image_shape[1]]
         points = np.vstack((x.ravel(), y.ravel())).T
         mask = ~path.contains_points(points).reshape(image_shape)  # Открываем полигон
-
-        # # Полигональная шторка
-        # vertices = shutter_params.get('vertices', [])
-        # if len(vertices) < 6 or len(vertices) % 2 != 0:
-        #     raise ValueError("Invalid polygon vertices format")
-        
-        # # Преобразование координат в формат [(x1,y1), (x2,y2)...]
-        # print(vertices)
-        # poly_points = np.array([(vertices[i], vertices[i+1]) 
-        #                       for i in range(0, len(vertices), 2)])
-        
-        # # Создание сетки координат
-        # x, y = np.meshgrid(np.arange(w), np.arange(h))
-        # x, y = x.flatten(), y.flatten()
-        # points = np.vstack((x,y)).T
-        
-        # # Проверка принадлежности точек полигону
-        # path = Path(poly_points)
-        # grid = path.contains_points(points)
-        # mask = grid.reshape(h, w)
     
     else:
         raise ValueError(f"Unsupported shutter type: {shutter_params['type']}")
     
     # Инвертируем маску, чтобы True = область вне шторки
     return ~mask
-
-
-
-
-
-
-
-# def bin_to_float64(b):
-#     bf = decode('%%0%dx' % (8 << 1) % int(b, 2), 'hex')[-8:] # 8 bytes needed for IEEE 754 binary64.
-#     return struct.unpack('>d', bf)[0]
 

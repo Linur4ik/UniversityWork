@@ -2,7 +2,7 @@ import unittest
 import os
 from generate import *
 from read import *
-from crypt import *
+from cryptFunc import *
 from operation import *
 
 

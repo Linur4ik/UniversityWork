@@ -1,13 +1,22 @@
 import pydicom
 from typing import Dict, Optional, List
+import numpy as np  
 
-def read_bits_from_mask(image, mask, bits_per_pixel=16):
-    """
-    Извлекает биты из доступных областей изображения.
-    :param image: Изображение с записанными битами (numpy array).
-    :param mask: Маска (True = скрытая область, False = доступная для записи).
-    :param bits_per_pixel: Количество бит на пиксель (8 для uint8, 16 для uint16).
-    :return: Битовая строка.
+
+def read_bits_from_mask(
+    image: np.ndarray,
+    mask: np.ndarray,
+    bits_per_pixel: int = 16
+    ) -> str:
+    """Извлекает битовую последовательность из незамаскированных областей изображения.
+    
+    Args:
+        image: Исходное изображение в виде numpy-массива
+        mask: Бинарная маска (True - скрытые пиксели)
+        bits_per_pixel: Глубина цвета (8/16 бит)
+
+    Returns:
+        str: Извлеченная битовая строка
     """
     flat_image = image.flatten()
     flat_mask = mask.flatten()
@@ -23,9 +32,13 @@ def read_bits_from_mask(image, mask, bits_per_pixel=16):
 
 
 def read_shutter_parameters(dcm_path: str) -> Optional[Dict]:
-    """
-    Чтение параметров шторки из DICOM-файла.
-    Возвращает словарь с параметрами или None, если шторка не найдена.
+    """Извлекает параметры шторки из DICOM-файла.
+    
+    Args:
+        dcm_path: Путь к DICOM-файлу
+
+    Returns:
+        Dict | None: Словарь параметров или None если шторка отсутствует
     """
     try:
         ds = pydicom.dcmread(dcm_path, force=True)
@@ -69,8 +82,15 @@ def read_shutter_parameters(dcm_path: str) -> Optional[Dict]:
 
     return params if len(params) > 1 else None
 
-def _parse_dicom_int(value) -> Optional[int]:
-    """Парсинг DICOM integer string (IS)"""
+def _parse_dicom_int(value: str) -> Optional[int]:
+    """Парсит DICOM-значения типа Integer String (IS).
+    
+    Args:
+        value: Сырое значение из DICOM-тега
+
+    Returns:
+        int | None: Распарсенное целое число
+    """
     try:
         return int(str(value).strip())
     except (ValueError, TypeError):

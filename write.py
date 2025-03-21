@@ -1,14 +1,25 @@
 import numpy as np
 
 
-def write_bits_to_mask(image, mask, bitstream, bits_per_pixel=16):
-    """
-    Записывает биты в доступные области изображения.
-    :param image: Исходное изображение (numpy array).
-    :param mask: Маска (True = скрытая область, False = доступная для записи).
-    :param bitstream: Битовая строка для записи.
-    :param bits_per_pixel: Количество бит на пиксель (8 для uint8, 16 для uint16).
-    :return: Изображение с записанными битами.
+def write_bits_to_mask(
+    image: np.ndarray,
+    mask: np.ndarray,
+    bitstream: str,
+    bits_per_pixel: int = 16
+) -> np.ndarray:
+    """Записывает битовую последовательность в незамаскированные области изображения.
+    
+    Args:
+        image: Исходное изображение
+        mask: Бинарная маска (True - защищенные пиксели)
+        bitstream: Битовая строка для записи
+        bits_per_pixel: Глубина цвета (8/16 бит)
+
+    Returns:
+        np.ndarray: Модифицированное изображение
+
+    Raises:
+        ValueError: Если битовая строка превышает доступную емкость
     """
     flat_image = image.flatten()
     flat_mask = mask.flatten()

@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import pydicom
 import numpy as np
 from typing import Optional, Dict, List, Tuple
-from crypt import encrypt_aes128, decrypt_aes128
+from cryptFunc import encrypt_aes128, decrypt_aes128
 from generate import generate_shutter_mask
 from read import read_shutter_parameters, read_bits_from_mask
 from write import write_bits_to_mask

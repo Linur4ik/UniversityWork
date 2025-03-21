@@ -4,7 +4,15 @@ from cryptography.hazmat.primitives import padding
 import os
 
 def encrypt_aes128(bitstream: str, key: bytes) -> bytes:
-    """Шифрование данных AES-128-CBC с PKCS7 паддингом"""
+    """Шифрует данные AES-128-CBC с PKCS7 паддингом.
+    
+    Args:
+        bitstream: Исходная битовая строка
+        key: 128-битный ключ шифрования
+
+    Returns:
+        bytes: Зашифрованные данные в формате IV + ciphertext
+    """
     # Генерация случайного IV
     original_bytes = int(bitstream, 2).to_bytes((len(bitstream) + 7) // 8, 'big')
     
@@ -30,7 +38,18 @@ def encrypt_aes128(bitstream: str, key: bytes) -> bytes:
     return iv + ciphertext
 
 def decrypt_aes128(encrypted_data: bytes, key: bytes) -> str:
-    """Дешифрование данных AES-128-CBC"""
+    """Дешифрует данные AES-128-CBC.
+    
+    Args:
+        encrypted_data: Данные в формате IV + ciphertext
+        key: 128-битный ключ шифрования
+
+    Returns:
+        str: Исходная битовая строка
+
+    Raises:
+        ValueError: При ошибках дешифрования
+    """
     # Извлечение IV
     iv = encrypted_data[:16]
     ciphertext = encrypted_data[16:]
