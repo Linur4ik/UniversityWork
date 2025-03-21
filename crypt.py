@@ -7,11 +7,10 @@ def encrypt_aes128(bitstream: str, key: bytes) -> bytes:
     """Шифрование данных AES-128-CBC с PKCS7 паддингом"""
     # Генерация случайного IV
     original_bytes = int(bitstream, 2).to_bytes((len(bitstream) + 7) // 8, 'big')
-
+    
     length_prefix = len(bitstream).to_bytes(4, 'big')  # 4 байта для длины
+
     data = length_prefix + original_bytes
-
-
 
     iv = os.urandom(16)
     
