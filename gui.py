@@ -4,7 +4,7 @@ import pydicom
 import numpy as np
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                             QLineEdit, QPushButton, QFileDialog, QTextEdit, QTabWidget, QGroupBox,
-                            QMessageBox, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView)
+                            QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox)
 from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -13,6 +13,8 @@ from generate import generate_shutter_mask
 from read import read_shutter_parameters, read_bits_from_mask
 from write import write_bits_to_mask
 from operation import metadata_to_bitstream, bitstream_to_metadata
+from main import embed_encrypted_metadata,extract_decrypted_metadata
+
 
 class DICOMSteganographyApp(QMainWindow):
     def __init__(self):
@@ -24,6 +26,8 @@ class DICOMSteganographyApp(QMainWindow):
         self.current_file = None
         self.ds = None
         self.key = None
+        self.shutter_params = None
+        self.bits_per_pixel = None
         
         # Создание интерфейса
         self.init_ui()
@@ -35,12 +39,12 @@ class DICOMSteganographyApp(QMainWindow):
         
         # Вкладка для шифрования
         self.encrypt_tab = QWidget()
-        self.tabs.addTab(self.encrypt_tab, "Encrypt Metadata")
+        self.tabs.addTab(self.encrypt_tab, "Embed Data")
         self.setup_encrypt_tab()
         
         # Вкладка для дешифрования
         self.decrypt_tab = QWidget()
-        self.tabs.addTab(self.decrypt_tab, "Decrypt Metadata")
+        self.tabs.addTab(self.decrypt_tab, "Extract Data")
         self.setup_decrypt_tab()
         
         # Вкладка для просмотра изображений
@@ -63,46 +67,62 @@ class DICOMSteganographyApp(QMainWindow):
         file_group.setLayout(file_layout)
         layout.addWidget(file_group)
         
-        # Ключ шифрования
-        key_group = QGroupBox("Encryption Settings")
-        key_layout = QVBoxLayout()
+        # Информация о файле
+        info_group = QGroupBox("File Information")
+        info_layout = QVBoxLayout()
+        
+        # Отображение параметров шторки
+        self.shutter_info = QLabel("Shutter type: Not detected")
+        info_layout.addWidget(self.shutter_info)
+        
+        # Отображение битности
+        self.bits_info = QLabel("Bits per pixel: Not detected")
+        info_layout.addWidget(self.bits_info)
+        
+        # Статус возможности кодирования
+        self.encode_status = QLabel("Status: Select DICOM file")
+        info_layout.addWidget(self.encode_status)
+        
+        info_group.setLayout(info_layout)
+        layout.addWidget(info_group)
+        
+        # Настройки шифрования
+        self.encrypt_group = QGroupBox("Encryption Settings (Optional)")
+        encrypt_layout = QVBoxLayout()
+        
+        # Чекбокс для включения шифрования
+        self.encrypt_check = QCheckBox("Enable AES-128 Encryption")
+        self.encrypt_check.stateChanged.connect(self.toggle_encrypt_fields)
+        encrypt_layout.addWidget(self.encrypt_check)
+        
+        # Поле для ключа (изначально отключено)
         self.key_edit = QLineEdit()
-        self.key_edit.setPlaceholderText("Enter 16-byte key in hex (e.g., 00112233445566778899aabbccddeeff)")
-        self.key_edit.textChanged.connect(self.validate_key)
-        key_layout.addWidget(QLabel("AES-128 Key:"))
-        key_layout.addWidget(self.key_edit)
+        self.key_edit.setPlaceholderText("Enter 16-byte key in hex (32 characters)")
+        self.key_edit.setEnabled(False)
+        encrypt_layout.addWidget(QLabel("Encryption Key:"))
+        encrypt_layout.addWidget(self.key_edit)
         
-        # Параметры шторки
-        shutter_layout = QHBoxLayout()
-        self.shutter_combo = QComboBox()
-        self.shutter_combo.addItems(["RECTANGULAR", "CIRCULAR", "POLYGONAL"])
-        shutter_layout.addWidget(QLabel("Shutter Type:"))
-        shutter_layout.addWidget(self.shutter_combo)
-        key_layout.addLayout(shutter_layout)
+        # Генерация ключа
+        self.gen_key_btn = QPushButton("Generate Random Key")
+        self.gen_key_btn.setEnabled(False)
+        self.gen_key_btn.clicked.connect(self.generate_key)
+        encrypt_layout.addWidget(self.gen_key_btn)
         
-        # Бит на пиксель
-        bits_layout = QHBoxLayout()
-        self.bits_combo = QComboBox()
-        self.bits_combo.addItems(["8", "16"])
-        bits_layout.addWidget(QLabel("Bits per Pixel:"))
-        bits_layout.addWidget(self.bits_combo)
-        key_layout.addLayout(bits_layout)
-        
-        key_group.setLayout(key_layout)
-        layout.addWidget(key_group)
+        self.encrypt_group.setLayout(encrypt_layout)
+        layout.addWidget(self.encrypt_group)
         
         # Таблица метаданных
         self.metadata_table = QTableWidget()
         self.metadata_table.setColumnCount(3)
         self.metadata_table.setHorizontalHeaderLabels(["Tag", "VR", "Value"])
         self.metadata_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        layout.addWidget(QLabel("Metadata to Encrypt:"))
+        layout.addWidget(QLabel("Metadata to Embed:"))
         layout.addWidget(self.metadata_table)
         
         # Кнопки действий
         btn_layout = QHBoxLayout()
-        encrypt_btn = QPushButton("Encrypt and Save")
-        encrypt_btn.clicked.connect(self.encrypt_and_save)
+        encrypt_btn = QPushButton("Embed Data and Save")
+        encrypt_btn.clicked.connect(self.embed_and_save)
         btn_layout.addWidget(encrypt_btn)
         layout.addLayout(btn_layout)
         
@@ -112,7 +132,7 @@ class DICOMSteganographyApp(QMainWindow):
         layout = QVBoxLayout()
         
         # Выбор файла
-        file_group = QGroupBox("Encrypted DICOM File")
+        file_group = QGroupBox("DICOM File with Embedded Data")
         file_layout = QHBoxLayout()
         self.encrypted_file_edit = QLineEdit()
         self.encrypted_file_edit.setReadOnly(True)
@@ -123,28 +143,47 @@ class DICOMSteganographyApp(QMainWindow):
         file_group.setLayout(file_layout)
         layout.addWidget(file_group)
         
-        # Ключ дешифрования
-        key_group = QGroupBox("Decryption Key")
-        key_layout = QVBoxLayout()
+        # Информация о файле
+        decrypt_info_group = QGroupBox("File Information")
+        decrypt_info_layout = QVBoxLayout()
+        
+        # Отображение параметров шторки
+        self.decrypt_shutter_info = QLabel("Shutter type: Not detected")
+        decrypt_info_layout.addWidget(self.decrypt_shutter_info)
+        
+        # Отображение битности
+        self.decrypt_bits_info = QLabel("Bits per pixel: Not detected")
+        decrypt_info_layout.addWidget(self.decrypt_bits_info)
+        
+        decrypt_info_group.setLayout(decrypt_info_layout)
+        layout.addWidget(decrypt_info_group)
+        
+        # Настройки дешифрования
+        self.decrypt_group = QGroupBox("Decryption Settings (If Encrypted)")
+        decrypt_layout = QVBoxLayout()
+        
+        # Поле для ключа
         self.decrypt_key_edit = QLineEdit()
         self.decrypt_key_edit.setPlaceholderText("Enter 16-byte key in hex")
-        key_layout.addWidget(QLabel("AES-128 Key:"))
-        key_layout.addWidget(self.decrypt_key_edit)
-        key_group.setLayout(key_layout)
-        layout.addWidget(key_group)
+        decrypt_layout.addWidget(QLabel("Decryption Key:"))
+        decrypt_layout.addWidget(self.decrypt_key_edit)
+        
+        self.decrypt_group.setLayout(decrypt_layout)
+        self.decrypt_group.setEnabled(True)
+        layout.addWidget(self.decrypt_group)
         
         # Извлеченные метаданные
         self.decrypted_table = QTableWidget()
         self.decrypted_table.setColumnCount(3)
         self.decrypted_table.setHorizontalHeaderLabels(["Tag", "VR", "Value"])
         self.decrypted_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        layout.addWidget(QLabel("Decrypted Metadata:"))
+        layout.addWidget(QLabel("Extracted Metadata:"))
         layout.addWidget(self.decrypted_table)
         
         # Кнопки действий
         btn_layout = QHBoxLayout()
-        decrypt_btn = QPushButton("Decrypt Metadata")
-        decrypt_btn.clicked.connect(self.decrypt_metadata)
+        decrypt_btn = QPushButton("Extract Metadata")
+        decrypt_btn.clicked.connect(self.extract_metadata)
         btn_layout.addWidget(decrypt_btn)
         layout.addLayout(btn_layout)
         
@@ -168,7 +207,7 @@ class DICOMSteganographyApp(QMainWindow):
         # Разница между изображениями
         self.diff_figure = Figure()
         self.diff_canvas = FigureCanvas(self.diff_figure)
-        layout.addWidget(QLabel("Difference:"))
+        layout.addWidget(QLabel("Difference (Enhanced):"))
         layout.addWidget(self.diff_canvas)
         
         self.view_tab.setLayout(layout)
@@ -181,22 +220,63 @@ class DICOMSteganographyApp(QMainWindow):
             self.current_file = file_path
             self.file_path_edit.setText(file_path)
             self.load_dicom_file(file_path)
-            self.populate_metadata_table()
     
     def browse_decrypt_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Encrypted DICOM File", "", "DICOM Files (*.dcm)"
+            self, "Select DICOM File with Embedded Data", "", "DICOM Files (*.dcm)"
         )
         if file_path:
             self.encrypted_file_edit.setText(file_path)
-            self.load_dicom_file(file_path, encrypted=True)
-            self.display_dicom_image(file_path, self.original_canvas, self.original_figure)
+            self.load_dicom_file(file_path, decrypt_mode=True)
     
-    def load_dicom_file(self, file_path, encrypted=False):
+    def load_dicom_file(self, file_path, decrypt_mode=False):
         try:
             self.ds = pydicom.dcmread(file_path, force=True)
-            if not encrypted:
+            
+            # Определение параметров шторки
+            self.shutter_params = read_shutter_parameters(file_path)
+            shutter_text = "Shutter type: "
+            if self.shutter_params:
+                shutter_text += self.shutter_params.get('type', 'Unknown')
+            else:
+                shutter_text += "Not found"
+            
+            # Определение битности
+            bits_text = "Bits per pixel: "
+            if (0x0028, 0x0101) in self.ds:
+                self.bits_per_pixel = self.ds.BitsStored
+                bits_text += str(self.bits_per_pixel)
+            else:
+                self.bits_per_pixel = None
+                bits_text += "Not found"
+            
+            # Обновление интерфейса в зависимости от режима
+            if decrypt_mode:
+                self.decrypt_shutter_info.setText(shutter_text)
+                self.decrypt_bits_info.setText(bits_text)
+                self.display_dicom_image(file_path, self.processed_canvas, self.processed_figure)
+                
+                # Проверка наличия шторки для извлечения
+                if not self.shutter_params:
+                    QMessageBox.warning(self, "Warning", 
+                                       "No shutter information found. Data extraction may not be possible.")
+            else:
+                self.shutter_info.setText(shutter_text)
+                self.bits_info.setText(bits_text)
                 self.display_dicom_image(file_path, self.original_canvas, self.original_figure)
+                
+                # Проверка возможности кодирования
+                status_text = "Status: "
+                if self.shutter_params and self.bits_per_pixel:
+                    status_text += "Ready for data embedding"
+                    self.encode_status.setStyleSheet("color: green")
+                else:
+                    status_text += "Cannot embed data - missing required DICOM attributes"
+                    self.encode_status.setStyleSheet("color: red")
+                self.encode_status.setText(status_text)
+                
+                # Заполнение таблицы метаданных
+                self.populate_metadata_table()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load DICOM file: {str(e)}")
     
@@ -213,19 +293,20 @@ class DICOMSteganographyApp(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Warning", f"Failed to display image: {str(e)}")
     
-    def validate_key(self):
-        key_text = self.key_edit.text().strip()
-        if len(key_text) == 32:
-            try:
-                self.key = bytes.fromhex(key_text)
-            except ValueError:
-                self.key = None
+    def toggle_encrypt_fields(self, state):
+        enabled = state == Qt.Checked
+        self.key_edit.setEnabled(enabled)
+        self.gen_key_btn.setEnabled(enabled)
+    
+    def generate_key(self):
+        key = os.urandom(16)
+        self.key_edit.setText(key.hex())
     
     def populate_metadata_table(self):
         if not self.ds:
             return
         
-        # Предопределенные теги для шифрования
+        # Предопределенные теги для встраивания
         tags_to_show = [
             (0x0010, 0x0010), (0x0010, 0x0030), (0x0008, 0x0020),
             (0x0008, 0x0030), (0x0008, 0x0070), (0x0008, 0x0080),
@@ -259,16 +340,36 @@ class DICOMSteganographyApp(QMainWindow):
             value_item = QTableWidgetItem(value)
             self.metadata_table.setItem(row, 2, value_item)
     
-    def encrypt_and_save(self):
+    def embed_and_save(self):
         if not self.current_file or not self.ds:
             QMessageBox.warning(self, "Warning", "Please select a DICOM file first")
             return
         
-        if not self.key or len(self.key) != 16:
-            QMessageBox.warning(self, "Warning", "Please enter a valid 16-byte hex key")
+        # Проверка необходимых атрибутов
+        if not self.shutter_params:
+            QMessageBox.critical(self, "Error", "Cannot embed data: No shutter information found in DICOM file")
+            return
+            
+        if not self.bits_per_pixel:
+            QMessageBox.critical(self, "Error", "Cannot embed data: Bits per pixel information not found")
             return
         
-        # Собираем метаданные для шифрования
+        # Обработка шифрования
+        use_encryption = self.encrypt_check.isChecked()
+        key = None
+        
+        if use_encryption:
+            key_text = self.key_edit.text().strip()
+            if len(key_text) != 32:
+                QMessageBox.warning(self, "Warning", "Encryption key must be 32 hex characters (16 bytes)")
+                return
+            try:
+                key = bytes.fromhex(key_text)
+            except ValueError:
+                QMessageBox.warning(self, "Warning", "Invalid hex format for encryption key")
+                return
+        
+        # Собираем метаданные для встраивания
         tags_to_embed = []
         vr_list = []
         values = []
@@ -291,32 +392,28 @@ class DICOMSteganographyApp(QMainWindow):
             else:
                 values.append(value)
         
-        # Выбираем параметры шифрования
-        shutter_type = self.shutter_combo.currentText()
-        bits_per_pixel = int(self.bits_combo.currentText())
-        
         # Запрашиваем путь для сохранения
         save_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Encrypted DICOM", "", "DICOM Files (*.dcm)"
+            self, "Save Modified DICOM", "", "DICOM Files (*.dcm)"
         )
         if not save_path:
             return
         
-        # Выполняем шифрование
+        # Выполняем встраивание данных
         result = embed_encrypted_metadata(
             dcm_path=self.current_file,
-            key=self.key,
+            key=key,
             tags_to_embed=tags_to_embed,
             vr_list=vr_list,
             values=values,
             output_path=save_path,
-            bits_per_pixel=bits_per_pixel
+            bits_per_pixel=self.bits_per_pixel
         )
         
         if result:
             QMessageBox.critical(self, "Error", result)
         else:
-            QMessageBox.information(self, "Success", "Metadata encrypted and saved successfully!")
+            QMessageBox.information(self, "Success", "Data embedded successfully!")
             self.display_dicom_image(save_path, self.processed_canvas, self.processed_figure)
             self.show_image_difference()
     
@@ -332,45 +429,57 @@ class DICOMSteganographyApp(QMainWindow):
             orig_img = orig_ds.pixel_array
             proc_img = proc_ds.pixel_array
             
-            # Вычисляем разницу
+            # Вычисляем разницу и усиливаем ее для визуализации
             diff = orig_img.astype(np.int16) - proc_img.astype(np.int16)
             abs_diff = np.abs(diff)
+            enhanced_diff = np.clip(abs_diff * 50, 0, 255).astype(np.uint8)
             
             # Отображаем разницу
             self.diff_figure.clear()
             ax = self.diff_figure.add_subplot(111)
-            ax.imshow(abs_diff, cmap='hot')
+            ax.imshow(enhanced_diff, cmap='hot')
             ax.axis('off')
-            ax.set_title("Pixel Differences")
+            ax.set_title("Pixel Differences (Enhanced 50x)")
             self.diff_canvas.draw()
         except Exception as e:
             QMessageBox.warning(self, "Warning", f"Failed to show difference: {str(e)}")
     
-    def decrypt_metadata(self):
+    def extract_metadata(self):
         encrypted_file = self.encrypted_file_edit.text()
         if not encrypted_file:
-            QMessageBox.warning(self, "Warning", "Please select an encrypted DICOM file")
+            QMessageBox.warning(self, "Warning", "Please select a DICOM file")
             return
         
+        # Проверка наличия шторки
+        if not self.shutter_params:
+            QMessageBox.critical(self, "Error", "Cannot extract data: No shutter information found")
+            return
+            
+        # Проверка наличия битности
+        if not self.bits_per_pixel:
+            QMessageBox.critical(self, "Error", "Cannot extract data: Bits per pixel information not found")
+            return
+        
+        # Обработка ключа
+        key = None
         key_text = self.decrypt_key_edit.text().strip()
-        if len(key_text) != 32:
-            QMessageBox.warning(self, "Warning", "Please enter a valid 16-byte hex key")
-            return
+        if key_text:
+            if len(key_text) != 32:
+                QMessageBox.warning(self, "Warning", "Decryption key must be 32 hex characters (16 bytes)")
+                return
+            try:
+                key = bytes.fromhex(key_text)
+            except ValueError:
+                QMessageBox.warning(self, "Warning", "Invalid hex format for decryption key")
+                return
         
-        try:
-            key = bytes.fromhex(key_text)
-        except ValueError:
-            QMessageBox.warning(self, "Warning", "Invalid hex format for key")
-            return
-        
-        # Выполняем дешифрование
-        metadata, error = extract_decrypted_metadata(encrypted_file, key)
+        # Выполняем извлечение данных
+        metadata, error = extract_decrypted_metadata(encrypted_file, key, self.bits_per_pixel)
         
         if error:
             QMessageBox.critical(self, "Error", error)
         else:
             self.display_decrypted_metadata(metadata)
-            self.display_dicom_image(encrypted_file, self.processed_canvas, self.processed_figure)
     
     def display_decrypted_metadata(self, metadata):
         self.decrypted_table.setRowCount(len(metadata))
@@ -391,6 +500,8 @@ class DICOMSteganographyApp(QMainWindow):
             # Отображаем значение
             if isinstance(value, bytes):
                 value_str = value.hex()
+            elif isinstance(value, list):
+                value_str = ', '.join(map(str, value))
             else:
                 value_str = str(value)
             
