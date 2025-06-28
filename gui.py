@@ -1,52 +1,50 @@
-import sys
 import os
-import pydicom
-import numpy as np
 import tempfile
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QLineEdit, QPushButton, QFileDialog, QTextEdit, QTabWidget, QGroupBox,
-                             QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
-                             QComboBox, QSpinBox, QAbstractItemView, QFormLayout)
+import numpy as np
+import pydicom
+from PyQt5.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QFileDialog, QTextEdit, QTabWidget, QGroupBox, QMessageBox, QTableWidget,
+    QTableWidgetItem, QHeaderView, QCheckBox, QComboBox, QSpinBox, QAbstractItemView,
+    QFormLayout
+)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from cryptFunc import encrypt_aes128, decrypt_aes128
-from generate import generate_shutter_mask
-from read import read_shutter_parameters, read_bits_from_mask
-from write import write_bits_to_mask
-from operation import metadata_to_bitstream, bitstream_to_metadata
-from main import embed_encrypted_metadata, extract_decrypted_metadata
+
+from dicom_utils import FORBIDDEN_TAGS, SUPPORTED_VR, update_dicom_shutter_tags
+from steganography import embed_encrypted_metadata, extract_decrypted_metadata
+from read import read_shutter_parameters
 from pydicom.tag import Tag
 
-FORBIDDEN_TAGS = {
-    # Шторки
-    (0x0018, 0x1600), (0x0018, 0x1602), (0x0018, 0x1604), (0x0018, 0x1606), (0x0018, 0x1608),
-    (0x0018, 0x1610), (0x0018, 0x1611), (0x0018, 0x1612), (0x0018, 0x1620),
-    # Пиксельные атрибуты
-    (0x0028, 0x0010), (0x0028, 0x0011), (0x0028, 0x0002), (0x0028, 0x0004),
-    (0x0028, 0x0100), (0x0028, 0x0101), (0x0028, 0x0103)
-}
-
-
-SUPPORTED_VR = {'US', 'SS', 'UL', 'SL', 'FL', 'FD', 'IS', 'PN', 'LO', 'LT', 'SH', 'OB', 'OW'}
 
 class DICOMSteganographyApp(QMainWindow):
+    """Главное окно приложения для стеганографии в DICOM файлах."""
+    
     def __init__(self):
         super().__init__()
         self.setWindowTitle("DICOM Steganography Tool")
         self.setGeometry(100, 100, 1200, 800)
-
+        self.setWindowIcon(QIcon("icon.png"))
+        
         self.current_file = None
         self.ds = None
         self.key = None
         self.shutter_params = None
         self.bits_per_pixel = None
         self.extracted_metadata = None
-
+        
         self.init_ui()
 
     def init_ui(self):
+        """Инициализирует графический интерфейс приложения, создавая вкладки:
+            - Embed Data
+            - Extract Data
+            - Image Viewer
+
+            Каждая вкладка настраивается с помощью соответствующих методов.
+        """
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
@@ -63,8 +61,11 @@ class DICOMSteganographyApp(QMainWindow):
         self.setup_view_tab()
 
     def setup_embed_tab(self):
-        layout = QVBoxLayout()
+        """Настраивает вкладку встраивания данных (Embed Data),
+        включая выбор DICOM-файла, отображение информации, 
+        параметры шторки, шифрование и выбор метаданных для встраивания."""
 
+        layout = QVBoxLayout()
         file_group = QGroupBox("DICOM File")
         file_layout = QHBoxLayout()
         self.embed_file_edit = QLineEdit()
@@ -139,6 +140,10 @@ class DICOMSteganographyApp(QMainWindow):
         self.embed_tab.setLayout(layout)
 
     def setup_extract_tab(self):
+        """Настраивает вкладку извлечения данных (Extract Data), 
+        предоставляя интерфейс для выбора файла, ввода ключа 
+        расшифровки и отображения извлеченных метаданных."""
+
         layout = QVBoxLayout()
 
         file_group = QGroupBox("DICOM File with Embedded Data")
@@ -196,6 +201,8 @@ class DICOMSteganographyApp(QMainWindow):
         self.extract_tab.setLayout(layout)
 
     def setup_view_tab(self):
+        """Создает вкладку просмотра изображений, включая области
+        для отображения оригинального и обработанного DICOM-изображения."""
         layout = QVBoxLayout()
         self.original_figure = Figure()
         self.original_canvas = FigureCanvas(self.original_figure)
@@ -208,6 +215,12 @@ class DICOMSteganographyApp(QMainWindow):
         self.view_tab.setLayout(layout)
 
     def browse_dicom_file(self, mode):
+        """Открывает диалог выбора DICOM-файла и вызывает загрузку
+        выбранного файла в зависимости от режима (embed/extract).
+
+        Args:
+            mode (str): Режим загрузки — 'embed' или 'extract'
+        """
         file_path, _ = QFileDialog.getOpenFileName(self, "Select DICOM File", "", "DICOM Files (*.dcm)")
         if not file_path:
             return
@@ -218,6 +231,18 @@ class DICOMSteganographyApp(QMainWindow):
         self.load_dicom_file(file_path, mode)
 
     def load_dicom_file(self, file_path, mode="embed"):
+        """Загружает DICOM-файл и отображает информацию о шторке,
+        глубине пикселя, изображение, а также подготавливает таблицу метаданных.
+
+        Args:
+            file_path (str): Путь к DICOM-файлу
+            mode (str): embed или extract
+
+        Raises:
+            QMessageBox: При ошибке чтения файла
+        """
+
+
         try:
             self.ds = pydicom.dcmread(file_path, force=True)
             self.shutter_params = read_shutter_parameters(file_path)
@@ -245,6 +270,8 @@ class DICOMSteganographyApp(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to load DICOM file: {e}")
 
     def setup_shutter_params_form(self):
+        """Создает форму для ввода параметров шторки в зависимости от её типа:
+        RECTANGULAR, CIRCULAR или POLYGONAL."""
         # Очищаем предыдущие виджеты
         while self.shutter_params_layout.count():
             child = self.shutter_params_layout.takeAt(0)
@@ -270,6 +297,7 @@ class DICOMSteganographyApp(QMainWindow):
             self.setup_polygonal_shutter_form()
 
     def setup_rectangular_shutter_form(self):
+        """Создает форму ввода прямоугольной шторки: левый, правый, верхний, нижний край."""
         form_layout = QFormLayout()
         self.left_edit = QSpinBox()
         self.left_edit.setRange(0, 10000)
@@ -284,6 +312,7 @@ class DICOMSteganographyApp(QMainWindow):
         self.shutter_params_layout.addLayout(form_layout)
 
     def setup_circular_shutter_form(self):
+        """Создает форму ввода круговой шторки: координаты центра и радиус."""
         form_layout = QFormLayout()
         self.center_x_edit = QSpinBox(); self.center_x_edit.setRange(0, 10000); self.center_x_edit.setValue(self.shutter_params.get('center_x', 256))
         form_layout.addRow("Center X:", self.center_x_edit)
@@ -294,6 +323,7 @@ class DICOMSteganographyApp(QMainWindow):
         self.shutter_params_layout.addLayout(form_layout)
 
     def setup_polygonal_shutter_form(self):
+        """Создает форму ввода полигональной шторки в формате: x1,y1;x2,y2;..."""
         form_layout = QFormLayout()
         vertices_label = QLabel("Vertices (format: x1,y1;x2,y2;...):")
         self.vertices_edit = QTextEdit()
@@ -303,6 +333,16 @@ class DICOMSteganographyApp(QMainWindow):
         self.shutter_params_layout.addLayout(form_layout)
 
     def display_dicom_image(self, file_path, canvas, figure):
+        """Отображает изображение из DICOM-файла на переданном холсте.
+
+        Args:
+            file_path (str): Путь к файлу
+            canvas (FigureCanvas): Холст для отображения
+            figure (Figure): Фигура matplotlib
+
+        Raises:
+            QMessageBox: В случае ошибки загрузки изображения
+        """
         try:
             ds = pydicom.dcmread(file_path, force=True)
             img = ds.pixel_array
@@ -312,27 +352,42 @@ class DICOMSteganographyApp(QMainWindow):
             QMessageBox.warning(self, "Warning", f"Failed to display image: {e}")
 
     def toggle_encrypt_fields(self, state):
+        """Отображает или скрывает поля для ввода ключа шифрования.
+
+        Args:
+            state (int): Состояние флажка (Qt.Checked/Unchecked)
+        """
         vis = state == Qt.Checked
         self.key_edit.setVisible(vis); self.gen_key_btn.setVisible(vis)
 
     def toggle_decrypt_fields(self, state):
+        """Отображает или скрывает поле ввода ключа расшифровки.
+
+        Args:
+            state (int): Состояние флажка (Qt.Checked/Unchecked)
+        """
         self.decrypt_key_edit.setVisible(state == Qt.Checked)
 
     def generate_key(self):
+        """Генерирует случайный 16-байтный ключ и отображает его в hex-формате в поле ввода."""
         key = os.urandom(16)
         self.key_edit.setText(key.hex())
 
     def select_all_tags(self):
+        """Устанавливает флажки включения на всех строках таблицы метаданных."""
         for r in range(self.metadata_table.rowCount()):
             item = self.metadata_table.item(r, 0)
             if item: item.setCheckState(Qt.Checked)
 
     def deselect_all_tags(self):
+        """Снимает флажки включения со всех строк таблицы метаданных."""
         for r in range(self.metadata_table.rowCount()):
             item = self.metadata_table.item(r, 0)
             if item: item.setCheckState(Qt.Unchecked)
 
     def populate_metadata_table(self):
+        """Заполняет таблицу метаданных доступными DICOM-тегами,
+        исключая запрещённые и неподдерживаемые VR."""
         if not self.ds:
             return
         # Собираем теги, исключая forbidden
@@ -373,6 +428,11 @@ class DICOMSteganographyApp(QMainWindow):
             self.metadata_table.setItem(row, 3, value_item)
 
     def get_shutter_params_from_form(self):
+        """Извлекает параметры шторки из формы ввода.
+
+        Returns:
+            dict: Словарь с параметрами шторки в зависимости от типа
+        """
         stype = self.shutter_type_combo.currentText()
         params = {'type': stype}
         if stype == "RECTANGULAR":
@@ -393,6 +453,12 @@ class DICOMSteganographyApp(QMainWindow):
         return params
 
     def update_dicom_shutter_tags(self, ds, shutter_params):
+        """Обновляет теги DICOM-файла, связанные со шторкой.
+
+        Args:
+            ds (Dataset): Объект pydicom Dataset
+            shutter_params (dict): Параметры шторки
+        """
         tags = [(0x0018,0x1600),(0x0018,0x1602),(0x0018,0x1604),(0x0018,0x1606),(0x0018,0x1608),
                 (0x0018,0x1610),(0x0018,0x1611),(0x0018,0x1612),(0x0018,0x1620)]
         for tag in tags:
@@ -409,6 +475,12 @@ class DICOMSteganographyApp(QMainWindow):
             ds.add_new((0x0018,0x1620),'IS',flat)
 
     def embed_and_save(self):
+        """Встраивает выбранные теги в DICOM, шифрует их при необходимости,
+        сохраняет результат и отображает обновлённое изображение.
+
+        Raises:
+            QMessageBox: При ошибках валидации или сохранения
+        """
         if not self.embed_file_edit.text() or not self.ds:
             QMessageBox.warning(self, "Warning", "Please select a DICOM file first")
             return
@@ -486,6 +558,12 @@ class DICOMSteganographyApp(QMainWindow):
                 pass
 
     def extract_metadata(self):
+        """Извлекает скрытые метаданные из DICOM-файла с учётом расшифровки,
+        отображает результат в таблице.
+
+        Raises:
+            QMessageBox: При ошибках ключа или чтения
+        """
         fp=self.extract_file_edit.text()
         if not fp: QMessageBox.warning(self, "Warning", "Please select a DICOM file"); return
         if not self.shutter_params or not self.bits_per_pixel:
@@ -506,6 +584,12 @@ class DICOMSteganographyApp(QMainWindow):
             QMessageBox.critical(self, "Error", f"Extraction failed: {e}")
 
     def save_dicom_with_metadata(self):
+        """Сохраняет DICOM-файл с ранее извлечёнными метаданными,
+        вставляя их обратно в dataset.
+
+        Raises:
+            QMessageBox: При ошибке сохранения файла
+        """
         if not self.extracted_metadata or not self.extract_file_edit.text():
             QMessageBox.warning(self, "Warning", "No extracted metadata to save"); return
         save_path,_=QFileDialog.getSaveFileName(self, "Save DICOM with Extracted Metadata", "", "DICOM Files (*.dcm)")
@@ -522,21 +606,33 @@ class DICOMSteganographyApp(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to save DICOM: {e}")
 
     def display_extracted_metadata(self, metadata):
+        """Отображает извлечённые метаданные в таблице интерфейса.
+
+        Args:
+            metadata (List[Tuple[Tuple[int,int], str, Any]]):
+                Список метаданных вида (тег, VR, значение)
+        """
         self.extracted_table.setRowCount(len(metadata))
-        for r,item in enumerate(metadata):
+        for r, item in enumerate(metadata):
             tag, vr, val = item
             tag_str = f"({tag[0]:04X},{tag[1]:04X})"
-            tag_item = QTableWidgetItem(tag_str); tag_item.setFlags(tag_item.flags() & ~Qt.ItemIsEditable)
-            vr_item = QTableWidgetItem(vr); vr_item.setFlags(vr_item.flags() & ~Qt.ItemIsEditable)
-            if isinstance(val, bytes): vro = f"<binary data, length: {len(val)} bytes>"
-            elif isinstance(val, list): vro = ', '.join(map(str,val))
-            else: vro = str(val)
-            val_item = QTableWidgetItem(vro); val_item.setFlags(val_item.flags() & ~Qt.ItemIsEditable)
-            self.extracted_table.setItem(r,0,tag_item); self.extracted_table.setItem(r,1,vr_item); self.extracted_table.setItem(r,2,val_item)
+            tag_item = QTableWidgetItem(tag_str)
+            tag_item.setFlags(tag_item.flags() & ~Qt.ItemIsEditable)
+            
+            vr_item = QTableWidgetItem(vr)
+            vr_item.setFlags(vr_item.flags() & ~Qt.ItemIsEditable)
+            
+            if isinstance(val, bytes):
+                val_str = f"<binary data, length: {len(val)} bytes>"
+            elif isinstance(val, list):
+                val_str = ', '.join(map(str, val))
+            else:
+                val_str = str(val)
+                
+            val_item = QTableWidgetItem(val_str)
+            val_item.setFlags(val_item.flags() & ~Qt.ItemIsEditable)
+            
+            self.extracted_table.setItem(r, 0, tag_item)
+            self.extracted_table.setItem(r, 1, vr_item)
+            self.extracted_table.setItem(r, 2, val_item)
 
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    app.setWindowIcon(QIcon("icon.png"))
-    window = DICOMSteganographyApp()
-    window.show()
-    sys.exit(app.exec_())
