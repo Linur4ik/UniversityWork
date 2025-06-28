@@ -19,6 +19,17 @@ from operation import metadata_to_bitstream, bitstream_to_metadata
 from main import embed_encrypted_metadata, extract_decrypted_metadata
 from pydicom.tag import Tag
 
+FORBIDDEN_TAGS = {
+    # Шторки
+    (0x0018, 0x1600), (0x0018, 0x1602), (0x0018, 0x1604), (0x0018, 0x1606), (0x0018, 0x1608),
+    (0x0018, 0x1610), (0x0018, 0x1611), (0x0018, 0x1612), (0x0018, 0x1620),
+    # Пиксельные атрибуты
+    (0x0028, 0x0010), (0x0028, 0x0011), (0x0028, 0x0002), (0x0028, 0x0004),
+    (0x0028, 0x0100), (0x0028, 0x0101), (0x0028, 0x0103)
+}
+
+
+
 class DICOMSteganographyApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -321,20 +332,42 @@ class DICOMSteganographyApp(QMainWindow):
             if item: item.setCheckState(Qt.Unchecked)
 
     def populate_metadata_table(self):
-        tags = [elem.tag for elem in self.ds if elem.tag.group in (0x0002,0x0008,0x0010,0x0018,0x0020,0x0028,0x0040)]
+        if not self.ds:
+            return
+        # Собираем теги, исключая forbidden
+        tags = []
+        for elem in self.ds:
+            t = (elem.tag.group, elem.tag.element)
+            if t in FORBIDDEN_TAGS:
+                continue
+            # ограничим по группам как ранее
+            if elem.tag.group in (0x0002, 0x0008, 0x0010, 0x0018, 0x0020, 0x0028, 0x0040):
+                tags.append(elem.tag)
         self.metadata_table.setRowCount(len(tags))
         for row, tag in enumerate(tags):
-            inc = QTableWidgetItem(); inc.setFlags(inc.flags() | Qt.ItemIsUserCheckable); inc.setCheckState(Qt.Checked)
-            self.metadata_table.setItem(row,0,inc)
-            tag_item = QTableWidgetItem(f"({tag.group:04X},{tag.element:04X})"); tag_item.setFlags(tag_item.flags() & ~Qt.ItemIsEditable)
-            self.metadata_table.setItem(row,1,tag_item)
+            include_item = QTableWidgetItem()
+            include_item.setFlags(include_item.flags() | Qt.ItemIsUserCheckable)
+            include_item.setCheckState(Qt.Checked)
+            self.metadata_table.setItem(row, 0, include_item)
+
+            tag_item = QTableWidgetItem(f"({tag.group:04X},{tag.element:04X})")
+            tag_item.setFlags(tag_item.flags() & ~Qt.ItemIsEditable)
+            self.metadata_table.setItem(row, 1, tag_item)
+
             try:
-                elem = self.ds[tag]; vr = elem.VR; val = str(elem.value)
-            except:
-                vr = ''; val = ''
-            vr_item = QTableWidgetItem(vr); vr_item.setFlags(vr_item.flags() & ~Qt.ItemIsEditable)
-            val_item = QTableWidgetItem(val); val_item.setFlags(val_item.flags() | Qt.ItemIsEditable)
-            self.metadata_table.setItem(row,2,vr_item); self.metadata_table.setItem(row,3,val_item)
+                element = self.ds[tag]
+                vr = element.VR
+                value = str(element.value)
+            except Exception:
+                vr = ""
+                value = ""
+            vr_item = QTableWidgetItem(vr)
+            vr_item.setFlags(vr_item.flags() & ~Qt.ItemIsEditable)
+            self.metadata_table.setItem(row, 2, vr_item)
+
+            value_item = QTableWidgetItem(value)
+            value_item.setFlags(value_item.flags() | Qt.ItemIsEditable)
+            self.metadata_table.setItem(row, 3, value_item)
 
     def get_shutter_params_from_form(self):
         stype = self.shutter_type_combo.currentText()
@@ -376,11 +409,29 @@ class DICOMSteganographyApp(QMainWindow):
         if not self.embed_file_edit.text() or not self.ds:
             QMessageBox.warning(self, "Warning", "Please select a DICOM file first")
             return
-        # Считываем новые параметры из формы
         new_params = self.get_shutter_params_from_form()
-        # Обновляем теги шторки в объекте DS
         self.update_dicom_shutter_tags(self.ds, new_params)
-        # Сохраняем изменения в временный файл
+
+        tags_to_embed, vr_list, values = [], [], []
+        for row in range(self.metadata_table.rowCount()):
+            if self.metadata_table.item(row, 0).checkState() == Qt.Checked:
+                tag_text = self.metadata_table.item(row, 1).text().strip("()")
+                group, element = map(lambda x: int(x, 16), tag_text.split(','))
+                if (group, element) in FORBIDDEN_TAGS:
+                    continue
+                tags_to_embed.append((group, element))
+                vr_list.append(self.metadata_table.item(row, 2).text())
+                values.append(self.metadata_table.item(row, 3).text())
+        if not tags_to_embed:
+            QMessageBox.warning(self, "Warning", "No valid tags selected for embedding")
+            return
+
+        # Удаляем скрываемые теги
+        for g, e in tags_to_embed:
+            tag_obj = Tag(g, e)
+            if tag_obj in self.ds:
+                del self.ds[tag_obj]
+
         tmp_fd, tmp_path = tempfile.mkstemp(suffix='.dcm')
         os.close(tmp_fd)
         try:
@@ -388,7 +439,7 @@ class DICOMSteganographyApp(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save temporary DICOM file: {e}")
             return
-        # Обрабатываем шифрование
+
         key = None
         if self.encrypt_check.isChecked():
             key_text = self.key_edit.text().strip()
@@ -402,21 +453,10 @@ class DICOMSteganographyApp(QMainWindow):
             except Exception as e:
                 QMessageBox.warning(self, "Warning", f"Invalid key: {e}")
                 return
-        # Собираем метаданные для встраивания
-        tags_to_embed, vr_list, values = [], [], []
-        for row in range(self.metadata_table.rowCount()):
-            if self.metadata_table.item(row, 0).checkState() == Qt.Checked:
-                tag_text = self.metadata_table.item(row, 1).text().strip("()")
-                group, element = map(lambda x: int(x, 16), tag_text.split(','))
-                tags_to_embed.append((group, element))
-                vr_list.append(self.metadata_table.item(row, 2).text())
-                values.append(self.metadata_table.item(row, 3).text())
-        if not tags_to_embed:
-            QMessageBox.warning(self, "Warning", "No tags selected for embedding")
-            return
-        # Сохраняем результат
+
         save_path, _ = QFileDialog.getSaveFileName(self, "Save Modified DICOM", "", "DICOM Files (*.dcm)")
         if not save_path:
+            os.remove(tmp_path)
             return
         try:
             result = embed_encrypted_metadata(
@@ -432,7 +472,6 @@ class DICOMSteganographyApp(QMainWindow):
                 QMessageBox.critical(self, "Error", result)
             else:
                 QMessageBox.information(self, "Success", "Data embedded successfully!")
-                # Обновляем параметры для последующих операций
                 self.shutter_params = new_params
                 self.display_dicom_image(save_path, self.processed_canvas, self.processed_figure)
         except Exception as e:
