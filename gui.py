@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                             QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
                             QComboBox, QSpinBox, QDoubleSpinBox, QAbstractItemView, QFormLayout)
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QIcon
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from cryptFunc import encrypt_aes128, decrypt_aes128
@@ -736,6 +737,7 @@ class DICOMSteganographyApp(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon("icon.png"))
     window = DICOMSteganographyApp()
     window.show()
     sys.exit(app.exec_())
