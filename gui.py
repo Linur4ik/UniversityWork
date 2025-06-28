@@ -29,6 +29,7 @@ FORBIDDEN_TAGS = {
 }
 
 
+SUPPORTED_VR = {'US', 'SS', 'UL', 'SL', 'FL', 'FD', 'IS', 'PN', 'LO', 'LT', 'SH', 'OB', 'OW'}
 
 class DICOMSteganographyApp(QMainWindow):
     def __init__(self):
@@ -339,6 +340,8 @@ class DICOMSteganographyApp(QMainWindow):
         for elem in self.ds:
             t = (elem.tag.group, elem.tag.element)
             if t in FORBIDDEN_TAGS:
+                continue
+            if elem.VR not in SUPPORTED_VR:
                 continue
             # ограничим по группам как ранее
             if elem.tag.group in (0x0002, 0x0008, 0x0010, 0x0018, 0x0020, 0x0028, 0x0040):

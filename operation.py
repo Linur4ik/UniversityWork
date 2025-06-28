@@ -91,6 +91,8 @@ def encode_value(vr, value):
     try:
         # Обработка числовых типов
         if vr in ('US', 'SS', 'UL', 'SL', 'IS'):
+            if value == "None":
+                value = 0
             return format(int(value), '016b' if vr in ('US', 'SS') else '032b')
         elif vr in ('FL', 'FD'):
             return float32_to_bin(float(value)) if vr == 'FL' else float64_to_bin(float(value))
