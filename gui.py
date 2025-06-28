@@ -37,32 +37,32 @@ class DICOMSteganographyApp(QMainWindow):
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
         
-        # Вкладка для шифрования
-        self.encrypt_tab = QWidget()
-        self.tabs.addTab(self.encrypt_tab, "Embed Data")
-        self.setup_encrypt_tab()
+        # Вкладка для встраивания данных
+        self.embed_tab = QWidget()
+        self.tabs.addTab(self.embed_tab, "Embed Data")
+        self.setup_embed_tab()
         
-        # Вкладка для дешифрования
-        self.decrypt_tab = QWidget()
-        self.tabs.addTab(self.decrypt_tab, "Extract Data")
-        self.setup_decrypt_tab()
+        # Вкладка для извлечения данных
+        self.extract_tab = QWidget()
+        self.tabs.addTab(self.extract_tab, "Extract Data")
+        self.setup_extract_tab()
         
         # Вкладка для просмотра изображений
         self.view_tab = QWidget()
         self.tabs.addTab(self.view_tab, "Image Viewer")
         self.setup_view_tab()
         
-    def setup_encrypt_tab(self):
+    def setup_embed_tab(self):
         layout = QVBoxLayout()
         
         # Выбор файла
         file_group = QGroupBox("DICOM File")
         file_layout = QHBoxLayout()
-        self.file_path_edit = QLineEdit()
-        self.file_path_edit.setReadOnly(True)
+        self.embed_file_edit = QLineEdit()
+        self.embed_file_edit.setReadOnly(True)
         file_browse_btn = QPushButton("Browse...")
-        file_browse_btn.clicked.connect(self.browse_encrypt_file)
-        file_layout.addWidget(self.file_path_edit)
+        file_browse_btn.clicked.connect(lambda: self.browse_dicom_file("embed"))
+        file_layout.addWidget(self.embed_file_edit)
         file_layout.addWidget(file_browse_btn)
         file_group.setLayout(file_layout)
         layout.addWidget(file_group)
@@ -80,14 +80,14 @@ class DICOMSteganographyApp(QMainWindow):
         info_layout.addWidget(self.bits_info)
         
         # Статус возможности кодирования
-        self.encode_status = QLabel("Status: Select DICOM file")
-        info_layout.addWidget(self.encode_status)
+        self.embed_status = QLabel("Status: Select DICOM file")
+        info_layout.addWidget(self.embed_status)
         
         info_group.setLayout(info_layout)
         layout.addWidget(info_group)
         
         # Настройки шифрования
-        self.encrypt_group = QGroupBox("Encryption Settings (Optional)")
+        self.encrypt_group = QGroupBox("Encryption Settings")
         encrypt_layout = QVBoxLayout()
         
         # Чекбокс для включения шифрования
@@ -95,23 +95,25 @@ class DICOMSteganographyApp(QMainWindow):
         self.encrypt_check.stateChanged.connect(self.toggle_encrypt_fields)
         encrypt_layout.addWidget(self.encrypt_check)
         
-        # Поле для ключа (изначально отключено)
+        # Поле для ключа (изначально скрыто)
+        key_layout = QHBoxLayout()
+        key_layout.addWidget(QLabel("Encryption Key:"))
         self.key_edit = QLineEdit()
         self.key_edit.setPlaceholderText("Enter 16-byte key in hex (32 characters)")
-        self.key_edit.setEnabled(False)
-        encrypt_layout.addWidget(QLabel("Encryption Key:"))
-        encrypt_layout.addWidget(self.key_edit)
+        self.key_edit.setVisible(False)
+        key_layout.addWidget(self.key_edit)
         
         # Генерация ключа
-        self.gen_key_btn = QPushButton("Generate Random Key")
-        self.gen_key_btn.setEnabled(False)
+        self.gen_key_btn = QPushButton("Generate Key")
+        self.gen_key_btn.setVisible(False)
         self.gen_key_btn.clicked.connect(self.generate_key)
-        encrypt_layout.addWidget(self.gen_key_btn)
+        key_layout.addWidget(self.gen_key_btn)
         
+        encrypt_layout.addLayout(key_layout)
         self.encrypt_group.setLayout(encrypt_layout)
         layout.addWidget(self.encrypt_group)
         
-        # Таблица метаданных
+        # Таблица метаданных для встраивания
         self.metadata_table = QTableWidget()
         self.metadata_table.setColumnCount(3)
         self.metadata_table.setHorizontalHeaderLabels(["Tag", "VR", "Value"])
@@ -121,115 +123,113 @@ class DICOMSteganographyApp(QMainWindow):
         
         # Кнопки действий
         btn_layout = QHBoxLayout()
-        encrypt_btn = QPushButton("Embed Data and Save")
-        encrypt_btn.clicked.connect(self.embed_and_save)
-        btn_layout.addWidget(encrypt_btn)
+        embed_btn = QPushButton("Embed Data and Save")
+        embed_btn.clicked.connect(self.embed_and_save)
+        btn_layout.addWidget(embed_btn)
         layout.addLayout(btn_layout)
         
-        self.encrypt_tab.setLayout(layout)
+        self.embed_tab.setLayout(layout)
     
-    def setup_decrypt_tab(self):
+    def setup_extract_tab(self):
         layout = QVBoxLayout()
         
         # Выбор файла
         file_group = QGroupBox("DICOM File with Embedded Data")
         file_layout = QHBoxLayout()
-        self.encrypted_file_edit = QLineEdit()
-        self.encrypted_file_edit.setReadOnly(True)
-        decrypt_browse_btn = QPushButton("Browse...")
-        decrypt_browse_btn.clicked.connect(self.browse_decrypt_file)
-        file_layout.addWidget(self.encrypted_file_edit)
-        file_layout.addWidget(decrypt_browse_btn)
+        self.extract_file_edit = QLineEdit()
+        self.extract_file_edit.setReadOnly(True)
+        extract_browse_btn = QPushButton("Browse...")
+        extract_browse_btn.clicked.connect(lambda: self.browse_dicom_file("extract"))
+        file_layout.addWidget(self.extract_file_edit)
+        file_layout.addWidget(extract_browse_btn)
         file_group.setLayout(file_layout)
         layout.addWidget(file_group)
         
         # Информация о файле
-        decrypt_info_group = QGroupBox("File Information")
-        decrypt_info_layout = QVBoxLayout()
+        extract_info_group = QGroupBox("File Information")
+        extract_info_layout = QVBoxLayout()
         
         # Отображение параметров шторки
-        self.decrypt_shutter_info = QLabel("Shutter type: Not detected")
-        decrypt_info_layout.addWidget(self.decrypt_shutter_info)
+        self.extract_shutter_info = QLabel("Shutter type: Not detected")
+        extract_info_layout.addWidget(self.extract_shutter_info)
         
         # Отображение битности
-        self.decrypt_bits_info = QLabel("Bits per pixel: Not detected")
-        decrypt_info_layout.addWidget(self.decrypt_bits_info)
+        self.extract_bits_info = QLabel("Bits per pixel: Not detected")
+        extract_info_layout.addWidget(self.extract_bits_info)
         
-        decrypt_info_group.setLayout(decrypt_info_layout)
-        layout.addWidget(decrypt_info_group)
+        extract_info_group.setLayout(extract_info_layout)
+        layout.addWidget(extract_info_group)
         
         # Настройки дешифрования
-        self.decrypt_group = QGroupBox("Decryption Settings (If Encrypted)")
+        self.decrypt_group = QGroupBox("Decryption Settings")
         decrypt_layout = QVBoxLayout()
         
-        # Поле для ключа
+        # Чекбокс для включения дешифрования
+        self.decrypt_check = QCheckBox("Data is Encrypted")
+        self.decrypt_check.stateChanged.connect(self.toggle_decrypt_fields)
+        decrypt_layout.addWidget(self.decrypt_check)
+        
+        # Поле для ключа (изначально скрыто)
+        key_layout = QHBoxLayout()
+        key_layout.addWidget(QLabel("Decryption Key:"))
         self.decrypt_key_edit = QLineEdit()
         self.decrypt_key_edit.setPlaceholderText("Enter 16-byte key in hex")
-        decrypt_layout.addWidget(QLabel("Decryption Key:"))
-        decrypt_layout.addWidget(self.decrypt_key_edit)
+        self.decrypt_key_edit.setVisible(False)
+        key_layout.addWidget(self.decrypt_key_edit)
+        decrypt_layout.addLayout(key_layout)
         
         self.decrypt_group.setLayout(decrypt_layout)
-        self.decrypt_group.setEnabled(True)
         layout.addWidget(self.decrypt_group)
         
         # Извлеченные метаданные
-        self.decrypted_table = QTableWidget()
-        self.decrypted_table.setColumnCount(3)
-        self.decrypted_table.setHorizontalHeaderLabels(["Tag", "VR", "Value"])
-        self.decrypted_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.extracted_table = QTableWidget()
+        self.extracted_table.setColumnCount(3)
+        self.extracted_table.setHorizontalHeaderLabels(["Tag", "VR", "Value"])
+        self.extracted_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         layout.addWidget(QLabel("Extracted Metadata:"))
-        layout.addWidget(self.decrypted_table)
+        layout.addWidget(self.extracted_table)
         
         # Кнопки действий
         btn_layout = QHBoxLayout()
-        decrypt_btn = QPushButton("Extract Metadata")
-        decrypt_btn.clicked.connect(self.extract_metadata)
-        btn_layout.addWidget(decrypt_btn)
+        extract_btn = QPushButton("Extract Metadata")
+        extract_btn.clicked.connect(self.extract_metadata)
+        btn_layout.addWidget(extract_btn)
         layout.addLayout(btn_layout)
         
-        self.decrypt_tab.setLayout(layout)
+        self.extract_tab.setLayout(layout)
     
     def setup_view_tab(self):
         layout = QVBoxLayout()
         
-        # Изображение до обработки
+        # Оригинальное изображение
         self.original_figure = Figure()
         self.original_canvas = FigureCanvas(self.original_figure)
         layout.addWidget(QLabel("Original Image:"))
         layout.addWidget(self.original_canvas)
         
-        # Изображение после обработки
+        # Обработанное изображение
         self.processed_figure = Figure()
         self.processed_canvas = FigureCanvas(self.processed_figure)
         layout.addWidget(QLabel("Processed Image:"))
         layout.addWidget(self.processed_canvas)
         
-        # Разница между изображениями
-        self.diff_figure = Figure()
-        self.diff_canvas = FigureCanvas(self.diff_figure)
-        layout.addWidget(QLabel("Difference (Enhanced):"))
-        layout.addWidget(self.diff_canvas)
-        
         self.view_tab.setLayout(layout)
     
-    def browse_encrypt_file(self):
+    def browse_dicom_file(self, mode):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select DICOM File", "", "DICOM Files (*.dcm)"
         )
-        if file_path:
-            self.current_file = file_path
-            self.file_path_edit.setText(file_path)
-            self.load_dicom_file(file_path)
+        if not file_path:
+            return
+            
+        if mode == "embed":
+            self.embed_file_edit.setText(file_path)
+        else:
+            self.extract_file_edit.setText(file_path)
+            
+        self.load_dicom_file(file_path, mode)
     
-    def browse_decrypt_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select DICOM File with Embedded Data", "", "DICOM Files (*.dcm)"
-        )
-        if file_path:
-            self.encrypted_file_edit.setText(file_path)
-            self.load_dicom_file(file_path, decrypt_mode=True)
-    
-    def load_dicom_file(self, file_path, decrypt_mode=False):
+    def load_dicom_file(self, file_path, mode="embed"):
         try:
             self.ds = pydicom.dcmread(file_path, force=True)
             
@@ -243,7 +243,7 @@ class DICOMSteganographyApp(QMainWindow):
             
             # Определение битности
             bits_text = "Bits per pixel: "
-            if (0x0028, 0x0101) in self.ds:
+            if hasattr(self.ds, 'BitsStored'):
                 self.bits_per_pixel = self.ds.BitsStored
                 bits_text += str(self.bits_per_pixel)
             else:
@@ -251,9 +251,9 @@ class DICOMSteganographyApp(QMainWindow):
                 bits_text += "Not found"
             
             # Обновление интерфейса в зависимости от режима
-            if decrypt_mode:
-                self.decrypt_shutter_info.setText(shutter_text)
-                self.decrypt_bits_info.setText(bits_text)
+            if mode == "extract":
+                self.extract_shutter_info.setText(shutter_text)
+                self.extract_bits_info.setText(bits_text)
                 self.display_dicom_image(file_path, self.processed_canvas, self.processed_figure)
                 
                 # Проверка наличия шторки для извлечения
@@ -265,15 +265,15 @@ class DICOMSteganographyApp(QMainWindow):
                 self.bits_info.setText(bits_text)
                 self.display_dicom_image(file_path, self.original_canvas, self.original_figure)
                 
-                # Проверка возможности кодирования
+                # Проверка возможности встраивания
                 status_text = "Status: "
                 if self.shutter_params and self.bits_per_pixel:
                     status_text += "Ready for data embedding"
-                    self.encode_status.setStyleSheet("color: green")
+                    self.embed_status.setStyleSheet("color: green")
                 else:
                     status_text += "Cannot embed data - missing required DICOM attributes"
-                    self.encode_status.setStyleSheet("color: red")
-                self.encode_status.setText(status_text)
+                    self.embed_status.setStyleSheet("color: red")
+                self.embed_status.setText(status_text)
                 
                 # Заполнение таблицы метаданных
                 self.populate_metadata_table()
@@ -294,9 +294,13 @@ class DICOMSteganographyApp(QMainWindow):
             QMessageBox.warning(self, "Warning", f"Failed to display image: {str(e)}")
     
     def toggle_encrypt_fields(self, state):
-        enabled = state == Qt.Checked
-        self.key_edit.setEnabled(enabled)
-        self.gen_key_btn.setEnabled(enabled)
+        visible = state == Qt.Checked
+        self.key_edit.setVisible(visible)
+        self.gen_key_btn.setVisible(visible)
+    
+    def toggle_decrypt_fields(self, state):
+        visible = state == Qt.Checked
+        self.decrypt_key_edit.setVisible(visible)
     
     def generate_key(self):
         key = os.urandom(16)
@@ -306,21 +310,17 @@ class DICOMSteganographyApp(QMainWindow):
         if not self.ds:
             return
         
-        # Предопределенные теги для встраивания
-        tags_to_show = [
-            (0x0010, 0x0010), (0x0010, 0x0030), (0x0008, 0x0020),
-            (0x0008, 0x0030), (0x0008, 0x0070), (0x0008, 0x0080),
-            (0x0008, 0x0090), (0x0008, 0x1010), (0x0008, 0x1030),
-            (0x0008, 0x1050), (0x0008, 0x1060), (0x0008, 0x1080),
-            (0x0008, 0x1090), (0x0028, 0x0010), (0x0028, 0x0008),
-            (0x0018, 0x0080), (0x0018, 0x0081), (0x0040, 0x0245)
-        ]
+        # Получаем все доступные теги
+        tags = []
+        for elem in self.ds:
+            if elem.tag.group in (0x0002, 0x0008, 0x0010, 0x0018, 0x0020, 0x0028, 0x0040):
+                tags.append(elem.tag)
         
-        self.metadata_table.setRowCount(len(tags_to_show))
+        self.metadata_table.setRowCount(len(tags))
         
-        for row, tag in enumerate(tags_to_show):
+        for row, tag in enumerate(tags):
             # Отображаем тег в формате (XXXX,XXXX)
-            tag_item = QTableWidgetItem(f"({tag[0]:04X},{tag[1]:04X})")
+            tag_item = QTableWidgetItem(f"({tag.group:04X},{tag.element:04X})")
             tag_item.setFlags(tag_item.flags() & ~Qt.ItemIsEditable)
             self.metadata_table.setItem(row, 0, tag_item)
             
@@ -329,7 +329,7 @@ class DICOMSteganographyApp(QMainWindow):
                 element = self.ds[tag]
                 vr = element.VR
                 value = str(element.value)
-            except KeyError:
+            except Exception:
                 vr = ""
                 value = ""
             
@@ -338,10 +338,11 @@ class DICOMSteganographyApp(QMainWindow):
             self.metadata_table.setItem(row, 1, vr_item)
             
             value_item = QTableWidgetItem(value)
+            value_item.setFlags(value_item.flags() & ~Qt.ItemIsEditable)
             self.metadata_table.setItem(row, 2, value_item)
     
     def embed_and_save(self):
-        if not self.current_file or not self.ds:
+        if not self.embed_file_edit.text() or not self.ds:
             QMessageBox.warning(self, "Warning", "Please select a DICOM file first")
             return
         
@@ -360,13 +361,15 @@ class DICOMSteganographyApp(QMainWindow):
         
         if use_encryption:
             key_text = self.key_edit.text().strip()
-            if len(key_text) != 32:
-                QMessageBox.warning(self, "Warning", "Encryption key must be 32 hex characters (16 bytes)")
+            if not key_text:
+                QMessageBox.warning(self, "Warning", "Please enter encryption key")
                 return
             try:
                 key = bytes.fromhex(key_text)
-            except ValueError:
-                QMessageBox.warning(self, "Warning", "Invalid hex format for encryption key")
+                if len(key) != 16:
+                    raise ValueError("Key must be 16 bytes")
+            except Exception as e:
+                QMessageBox.warning(self, "Warning", f"Invalid key: {str(e)}")
                 return
         
         # Собираем метаданные для встраивания
@@ -383,14 +386,7 @@ class DICOMSteganographyApp(QMainWindow):
             
             tags_to_embed.append((group, element))
             vr_list.append(vr)
-            
-            # Преобразуем значения в правильный тип
-            if vr == 'IS':
-                values.append(int(value) if value else 0)
-            elif vr in ('FL', 'FD'):
-                values.append(float(value) if value else 0.0)
-            else:
-                values.append(value)
+            values.append(value)
         
         # Запрашиваем путь для сохранения
         save_path, _ = QFileDialog.getSaveFileName(
@@ -400,53 +396,28 @@ class DICOMSteganographyApp(QMainWindow):
             return
         
         # Выполняем встраивание данных
-        result = embed_encrypted_metadata(
-            dcm_path=self.current_file,
-            key=key,
-            tags_to_embed=tags_to_embed,
-            vr_list=vr_list,
-            values=values,
-            output_path=save_path,
-            bits_per_pixel=self.bits_per_pixel
-        )
-        
-        if result:
-            QMessageBox.critical(self, "Error", result)
-        else:
-            QMessageBox.information(self, "Success", "Data embedded successfully!")
-            self.display_dicom_image(save_path, self.processed_canvas, self.processed_figure)
-            self.show_image_difference()
-    
-    def show_image_difference(self):
-        if not self.current_file:
-            return
-        
         try:
-            # Загружаем оригинальное и обработанное изображения
-            orig_ds = pydicom.dcmread(self.current_file, force=True)
-            proc_ds = pydicom.dcmread(self.file_path_edit.text(), force=True)
+            result = embed_encrypted_metadata(
+                dcm_path=self.embed_file_edit.text(),
+                key=key,
+                tags_to_embed=tags_to_embed,
+                vr_list=vr_list,
+                values=values,
+                output_path=save_path,
+                bits_per_pixel=self.bits_per_pixel
+            )
             
-            orig_img = orig_ds.pixel_array
-            proc_img = proc_ds.pixel_array
-            
-            # Вычисляем разницу и усиливаем ее для визуализации
-            diff = orig_img.astype(np.int16) - proc_img.astype(np.int16)
-            abs_diff = np.abs(diff)
-            enhanced_diff = np.clip(abs_diff * 50, 0, 255).astype(np.uint8)
-            
-            # Отображаем разницу
-            self.diff_figure.clear()
-            ax = self.diff_figure.add_subplot(111)
-            ax.imshow(enhanced_diff, cmap='hot')
-            ax.axis('off')
-            ax.set_title("Pixel Differences (Enhanced 50x)")
-            self.diff_canvas.draw()
+            if result:
+                QMessageBox.critical(self, "Error", result)
+            else:
+                QMessageBox.information(self, "Success", "Data embedded successfully!")
+                self.display_dicom_image(save_path, self.processed_canvas, self.processed_figure)
         except Exception as e:
-            QMessageBox.warning(self, "Warning", f"Failed to show difference: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Embedding failed: {str(e)}")
     
     def extract_metadata(self):
-        encrypted_file = self.encrypted_file_edit.text()
-        if not encrypted_file:
+        file_path = self.extract_file_edit.text()
+        if not file_path:
             QMessageBox.warning(self, "Warning", "Please select a DICOM file")
             return
         
@@ -462,27 +433,32 @@ class DICOMSteganographyApp(QMainWindow):
         
         # Обработка ключа
         key = None
-        key_text = self.decrypt_key_edit.text().strip()
-        if key_text:
-            if len(key_text) != 32:
-                QMessageBox.warning(self, "Warning", "Decryption key must be 32 hex characters (16 bytes)")
+        if self.decrypt_check.isChecked():
+            key_text = self.decrypt_key_edit.text().strip()
+            if not key_text:
+                QMessageBox.warning(self, "Warning", "Please enter decryption key")
                 return
             try:
                 key = bytes.fromhex(key_text)
-            except ValueError:
-                QMessageBox.warning(self, "Warning", "Invalid hex format for decryption key")
+                if len(key) != 16:
+                    raise ValueError("Key must be 16 bytes")
+            except Exception as e:
+                QMessageBox.warning(self, "Warning", f"Invalid key: {str(e)}")
                 return
         
         # Выполняем извлечение данных
-        metadata, error = extract_decrypted_metadata(encrypted_file, key, self.bits_per_pixel)
-        
-        if error:
-            QMessageBox.critical(self, "Error", error)
-        else:
-            self.display_decrypted_metadata(metadata)
+        try:
+            metadata, error = extract_decrypted_metadata(file_path, key, self.bits_per_pixel)
+            
+            if error:
+                QMessageBox.critical(self, "Error", error)
+            else:
+                self.display_extracted_metadata(metadata)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Extraction failed: {str(e)}")
     
-    def display_decrypted_metadata(self, metadata):
-        self.decrypted_table.setRowCount(len(metadata))
+    def display_extracted_metadata(self, metadata):
+        self.extracted_table.setRowCount(len(metadata))
         
         for row, item in enumerate(metadata):
             tag, vr, value = item
@@ -490,16 +466,16 @@ class DICOMSteganographyApp(QMainWindow):
             # Отображаем тег
             tag_item = QTableWidgetItem(f"({tag[0]:04X},{tag[1]:04X})")
             tag_item.setFlags(tag_item.flags() & ~Qt.ItemIsEditable)
-            self.decrypted_table.setItem(row, 0, tag_item)
+            self.extracted_table.setItem(row, 0, tag_item)
             
             # Отображаем VR
             vr_item = QTableWidgetItem(vr)
             vr_item.setFlags(vr_item.flags() & ~Qt.ItemIsEditable)
-            self.decrypted_table.setItem(row, 1, vr_item)
+            self.extracted_table.setItem(row, 1, vr_item)
             
             # Отображаем значение
             if isinstance(value, bytes):
-                value_str = value.hex()
+                value_str = f"<binary data, length: {len(value)} bytes>"
             elif isinstance(value, list):
                 value_str = ', '.join(map(str, value))
             else:
@@ -507,7 +483,7 @@ class DICOMSteganographyApp(QMainWindow):
             
             value_item = QTableWidgetItem(value_str)
             value_item.setFlags(value_item.flags() & ~Qt.ItemIsEditable)
-            self.decrypted_table.setItem(row, 2, value_item)
+            self.extracted_table.setItem(row, 2, value_item)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
