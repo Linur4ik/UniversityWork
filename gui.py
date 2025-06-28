@@ -4,7 +4,8 @@ import pydicom
 import numpy as np
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                             QLineEdit, QPushButton, QFileDialog, QTextEdit, QTabWidget, QGroupBox,
-                            QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox)
+                            QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
+                            QComboBox, QSpinBox, QDoubleSpinBox, QAbstractItemView, QFormLayout)
 from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -14,7 +15,7 @@ from read import read_shutter_parameters, read_bits_from_mask
 from write import write_bits_to_mask
 from operation import metadata_to_bitstream, bitstream_to_metadata
 from main import embed_encrypted_metadata,extract_decrypted_metadata
-
+from pydicom.tag import Tag
 
 class DICOMSteganographyApp(QMainWindow):
     def __init__(self):
@@ -28,6 +29,7 @@ class DICOMSteganographyApp(QMainWindow):
         self.key = None
         self.shutter_params = None
         self.bits_per_pixel = None
+        self.extracted_metadata = None
         
         # Создание интерфейса
         self.init_ui()
@@ -86,6 +88,13 @@ class DICOMSteganographyApp(QMainWindow):
         info_group.setLayout(info_layout)
         layout.addWidget(info_group)
         
+        # Настройки шторки
+        self.shutter_params_group = QGroupBox("Shutter Parameters")
+        self.shutter_params_layout = QVBoxLayout()
+        self.shutter_params_group.setLayout(self.shutter_params_layout)
+        layout.addWidget(self.shutter_params_group)
+        self.shutter_params_group.setVisible(False)
+        
         # Настройки шифрования
         self.encrypt_group = QGroupBox("Encryption Settings")
         encrypt_layout = QVBoxLayout()
@@ -113,11 +122,24 @@ class DICOMSteganographyApp(QMainWindow):
         self.encrypt_group.setLayout(encrypt_layout)
         layout.addWidget(self.encrypt_group)
         
+        # Управление выбором тегов
+        tag_control_layout = QHBoxLayout()
+        self.select_all_btn = QPushButton("Select All")
+        self.select_all_btn.clicked.connect(self.select_all_tags)
+        tag_control_layout.addWidget(self.select_all_btn)
+        
+        self.deselect_all_btn = QPushButton("Deselect All")
+        self.deselect_all_btn.clicked.connect(self.deselect_all_tags)
+        tag_control_layout.addWidget(self.deselect_all_btn)
+        layout.addLayout(tag_control_layout)
+        
         # Таблица метаданных для встраивания
         self.metadata_table = QTableWidget()
-        self.metadata_table.setColumnCount(3)
-        self.metadata_table.setHorizontalHeaderLabels(["Tag", "VR", "Value"])
-        self.metadata_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.metadata_table.setColumnCount(4)
+        self.metadata_table.setHorizontalHeaderLabels(["Include", "Tag", "VR", "Value"])
+        self.metadata_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.metadata_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.metadata_table.setEditTriggers(QAbstractItemView.DoubleClicked)
         layout.addWidget(QLabel("Metadata to Embed:"))
         layout.addWidget(self.metadata_table)
         
@@ -194,6 +216,12 @@ class DICOMSteganographyApp(QMainWindow):
         extract_btn = QPushButton("Extract Metadata")
         extract_btn.clicked.connect(self.extract_metadata)
         btn_layout.addWidget(extract_btn)
+        
+        self.save_dicom_btn = QPushButton("Save DICOM with Extracted Metadata")
+        self.save_dicom_btn.clicked.connect(self.save_dicom_with_metadata)
+        self.save_dicom_btn.setEnabled(False)
+        btn_layout.addWidget(self.save_dicom_btn)
+        
         layout.addLayout(btn_layout)
         
         self.extract_tab.setLayout(layout)
@@ -238,6 +266,9 @@ class DICOMSteganographyApp(QMainWindow):
             shutter_text = "Shutter type: "
             if self.shutter_params:
                 shutter_text += self.shutter_params.get('type', 'Unknown')
+                # Показываем параметры шторки для редактирования
+                if mode == "embed":
+                    self.setup_shutter_params_form()
             else:
                 shutter_text += "Not found"
             
@@ -280,6 +311,103 @@ class DICOMSteganographyApp(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load DICOM file: {str(e)}")
     
+    def setup_shutter_params_form(self):
+        # Очищаем предыдущие виджеты
+        while self.shutter_params_layout.count():
+            child = self.shutter_params_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        
+        # Показываем группу параметров шторки
+        self.shutter_params_group.setVisible(True)
+        
+        # Выбор типа шторки
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(QLabel("Shutter Type:"))
+        self.shutter_type_combo = QComboBox()
+        self.shutter_type_combo.addItems(["RECTANGULAR", "CIRCULAR", "POLYGONAL"])
+        self.shutter_type_combo.setCurrentText(self.shutter_params.get('type', 'RECTANGULAR'))
+        type_layout.addWidget(self.shutter_type_combo)
+        self.shutter_params_layout.addLayout(type_layout)
+        
+        # Форма для параметров в зависимости от типа шторки
+        if self.shutter_params['type'] == "RECTANGULAR":
+            self.setup_rectangular_shutter_form()
+        elif self.shutter_params['type'] == "CIRCULAR":
+            self.setup_circular_shutter_form()
+        elif self.shutter_params['type'] == "POLYGONAL":
+            self.setup_polygonal_shutter_form()
+    
+    def setup_rectangular_shutter_form(self):
+        # Создаем форму для прямоугольной шторки
+        form_layout = QFormLayout()
+        
+        # Левая граница
+        self.left_edit = QSpinBox()
+        self.left_edit.setRange(0, 10000)
+        self.left_edit.setValue(self.shutter_params.get('left', 0))
+        form_layout.addRow("Left:", self.left_edit)
+        
+        # Правая граница
+        self.right_edit = QSpinBox()
+        self.right_edit.setRange(0, 10000)
+        self.right_edit.setValue(self.shutter_params.get('right', 512))
+        form_layout.addRow("Right:", self.right_edit)
+        
+        # Верхняя граница
+        self.top_edit = QSpinBox()
+        self.top_edit.setRange(0, 10000)
+        self.top_edit.setValue(self.shutter_params.get('top', 0))
+        form_layout.addRow("Top:", self.top_edit)
+        
+        # Нижняя граница
+        self.bottom_edit = QSpinBox()
+        self.bottom_edit.setRange(0, 10000)
+        self.bottom_edit.setValue(self.shutter_params.get('bottom', 512))
+        form_layout.addRow("Bottom:", self.bottom_edit)
+        
+        self.shutter_params_layout.addLayout(form_layout)
+    
+    def setup_circular_shutter_form(self):
+        # Создаем форму для круглой шторки
+        form_layout = QFormLayout()
+        
+        # Центр X
+        self.center_x_edit = QSpinBox()
+        self.center_x_edit.setRange(0, 10000)
+        self.center_x_edit.setValue(self.shutter_params.get('center_x', 256))
+        form_layout.addRow("Center X:", self.center_x_edit)
+        
+        # Центр Y
+        self.center_y_edit = QSpinBox()
+        self.center_y_edit.setRange(0, 10000)
+        self.center_y_edit.setValue(self.shutter_params.get('center_y', 256))
+        form_layout.addRow("Center Y:", self.center_y_edit)
+        
+        # Радиус
+        self.radius_edit = QSpinBox()
+        self.radius_edit.setRange(0, 10000)
+        self.radius_edit.setValue(self.shutter_params.get('radius', 100))
+        form_layout.addRow("Radius:", self.radius_edit)
+        
+        self.shutter_params_layout.addLayout(form_layout)
+    
+    def setup_polygonal_shutter_form(self):
+        # Создаем форму для полигональной шторки
+        form_layout = QFormLayout()
+        
+        # Вершины
+        vertices_label = QLabel("Vertices (format: x1,y1;x2,y2;...):")
+        self.vertices_edit = QTextEdit()
+        
+        # Преобразуем вершины в строку
+        vertices = self.shutter_params.get('vertices', [])
+        vertices_str = ';'.join([f"{x},{y}" for x, y in vertices])
+        self.vertices_edit.setText(vertices_str)
+        
+        form_layout.addRow(vertices_label, self.vertices_edit)
+        self.shutter_params_layout.addLayout(form_layout)
+    
     def display_dicom_image(self, file_path, canvas, figure):
         try:
             ds = pydicom.dcmread(file_path, force=True)
@@ -306,6 +434,18 @@ class DICOMSteganographyApp(QMainWindow):
         key = os.urandom(16)
         self.key_edit.setText(key.hex())
     
+    def select_all_tags(self):
+        for row in range(self.metadata_table.rowCount()):
+            item = self.metadata_table.item(row, 0)
+            if item:
+                item.setCheckState(Qt.Checked)
+    
+    def deselect_all_tags(self):
+        for row in range(self.metadata_table.rowCount()):
+            item = self.metadata_table.item(row, 0)
+            if item:
+                item.setCheckState(Qt.Unchecked)
+    
     def populate_metadata_table(self):
         if not self.ds:
             return
@@ -319,10 +459,16 @@ class DICOMSteganographyApp(QMainWindow):
         self.metadata_table.setRowCount(len(tags))
         
         for row, tag in enumerate(tags):
+            # Чекбокс для выбора
+            include_item = QTableWidgetItem()
+            include_item.setFlags(include_item.flags() | Qt.ItemIsUserCheckable)
+            include_item.setCheckState(Qt.Checked)
+            self.metadata_table.setItem(row, 0, include_item)
+            
             # Отображаем тег в формате (XXXX,XXXX)
             tag_item = QTableWidgetItem(f"({tag.group:04X},{tag.element:04X})")
             tag_item.setFlags(tag_item.flags() & ~Qt.ItemIsEditable)
-            self.metadata_table.setItem(row, 0, tag_item)
+            self.metadata_table.setItem(row, 1, tag_item)
             
             # Получаем VR и значение
             try:
@@ -335,11 +481,68 @@ class DICOMSteganographyApp(QMainWindow):
             
             vr_item = QTableWidgetItem(vr)
             vr_item.setFlags(vr_item.flags() & ~Qt.ItemIsEditable)
-            self.metadata_table.setItem(row, 1, vr_item)
+            self.metadata_table.setItem(row, 2, vr_item)
             
             value_item = QTableWidgetItem(value)
-            value_item.setFlags(value_item.flags() & ~Qt.ItemIsEditable)
-            self.metadata_table.setItem(row, 2, value_item)
+            value_item.setFlags(value_item.flags() | Qt.ItemIsEditable)
+            self.metadata_table.setItem(row, 3, value_item)
+    
+    def get_shutter_params_from_form(self):
+        """Получает параметры шторки из формы редактирования"""
+        shutter_type = self.shutter_type_combo.currentText()
+        params = {'type': shutter_type}
+        
+        if shutter_type == "RECTANGULAR":
+            params['left'] = self.left_edit.value()
+            params['right'] = self.right_edit.value()
+            params['top'] = self.top_edit.value()
+            params['bottom'] = self.bottom_edit.value()
+        elif shutter_type == "CIRCULAR":
+            params['center_x'] = self.center_x_edit.value()
+            params['center_y'] = self.center_y_edit.value()
+            params['radius'] = self.radius_edit.value()
+        elif shutter_type == "POLYGONAL":
+            vertices_str = self.vertices_edit.toPlainText()
+            vertices = []
+            for pair in vertices_str.split(';'):
+                if pair.strip():
+                    x, y = map(int, pair.split(','))
+                    vertices.append((x, y))
+            params['vertices'] = vertices
+        
+        return params
+    
+    def update_dicom_shutter_tags(self, ds, shutter_params):
+        """Обновляет теги шторки в DICOM объекте"""
+        # Удаляем старые теги шторки
+        shutter_tags = [
+            (0x0018, 0x1600), (0x0018, 0x1602), (0x0018, 0x1604),
+            (0x0018, 0x1606), (0x0018, 0x1608), (0x0018, 0x1610),
+            (0x0018, 0x1611), (0x0018, 0x1612), (0x0018, 0x1620)
+        ]
+        
+        for tag in shutter_tags:
+            if tag in ds:
+                del ds[tag]
+        
+        # Добавляем новые теги
+        shutter_type = shutter_params['type']
+        ds.add_new((0x0018, 0x1600), 'CS', shutter_type)
+        
+        if shutter_type == "RECTANGULAR":
+            ds.add_new((0x0018, 0x1602), 'IS', str(shutter_params['left']))
+            ds.add_new((0x0018, 0x1604), 'IS', str(shutter_params['right']))
+            ds.add_new((0x0018, 0x1606), 'IS', str(shutter_params['top']))
+            ds.add_new((0x0018, 0x1608), 'IS', str(shutter_params['bottom']))
+        elif shutter_type == "CIRCULAR":
+            ds.add_new((0x0018, 0x1610), 'IS', str(shutter_params['center_x']))
+            ds.add_new((0x0018, 0x1611), 'IS', str(shutter_params['center_y']))
+            ds.add_new((0x0018, 0x1612), 'IS', str(shutter_params['radius']))
+        elif shutter_type == "POLYGONAL":
+            vertices = shutter_params['vertices']
+            # Преобразуем список вершин в плоский список координат
+            flat_vertices = [coord for point in vertices for coord in point]
+            ds.add_new((0x0018, 0x1620), 'IS', flat_vertices)
     
     def embed_and_save(self):
         if not self.embed_file_edit.text() or not self.ds:
@@ -354,6 +557,10 @@ class DICOMSteganographyApp(QMainWindow):
         if not self.bits_per_pixel:
             QMessageBox.critical(self, "Error", "Cannot embed data: Bits per pixel information not found")
             return
+        
+        # Обновляем параметры шторки из формы
+        new_shutter_params = self.get_shutter_params_from_form()
+        self.update_dicom_shutter_tags(self.ds, new_shutter_params)
         
         # Обработка шифрования
         use_encryption = self.encrypt_check.isChecked()
@@ -372,21 +579,26 @@ class DICOMSteganographyApp(QMainWindow):
                 QMessageBox.warning(self, "Warning", f"Invalid key: {str(e)}")
                 return
         
-        # Собираем метаданные для встраивания
+        # Собираем метаданные для встраивания (только выбранные)
         tags_to_embed = []
         vr_list = []
         values = []
         
         for row in range(self.metadata_table.rowCount()):
-            tag_text = self.metadata_table.item(row, 0).text().strip("()")
-            group, element = map(lambda x: int(x, 16), tag_text.split(','))
-            
-            vr = self.metadata_table.item(row, 1).text()
-            value = self.metadata_table.item(row, 2).text()
-            
-            tags_to_embed.append((group, element))
-            vr_list.append(vr)
-            values.append(value)
+            if self.metadata_table.item(row, 0).checkState() == Qt.Checked:
+                tag_text = self.metadata_table.item(row, 1).text().strip("()")
+                group, element = map(lambda x: int(x, 16), tag_text.split(','))
+                
+                vr = self.metadata_table.item(row, 2).text()
+                value = self.metadata_table.item(row, 3).text()
+                
+                tags_to_embed.append((group, element))
+                vr_list.append(vr)
+                values.append(value)
+        
+        if not tags_to_embed:
+            QMessageBox.warning(self, "Warning", "No tags selected for embedding")
+            return
         
         # Запрашиваем путь для сохранения
         save_path, _ = QFileDialog.getSaveFileName(
@@ -448,14 +660,51 @@ class DICOMSteganographyApp(QMainWindow):
         
         # Выполняем извлечение данных
         try:
-            metadata, error = extract_decrypted_metadata(file_path, key, self.bits_per_pixel)
+            self.extracted_metadata, error = extract_decrypted_metadata(file_path, key, self.bits_per_pixel)
             
             if error:
                 QMessageBox.critical(self, "Error", error)
             else:
-                self.display_extracted_metadata(metadata)
+                self.display_extracted_metadata(self.extracted_metadata)
+                self.save_dicom_btn.setEnabled(True)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Extraction failed: {str(e)}")
+    
+    def save_dicom_with_metadata(self):
+        if not self.extracted_metadata or not self.extract_file_edit.text():
+            QMessageBox.warning(self, "Warning", "No extracted metadata to save")
+            return
+        
+        # Запрашиваем путь для сохранения
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "Save DICOM with Extracted Metadata", "", "DICOM Files (*.dcm)"
+        )
+        if not save_path:
+            return
+        
+        try:
+            # Загружаем оригинальный DICOM файл
+            ds = pydicom.dcmread(self.extract_file_edit.text(), force=True)
+            
+            # Обновляем метаданные извлеченными значениями
+            for item in self.extracted_metadata:
+                tag, vr, value = item
+                
+                # Преобразуем кортеж тега в объект Tag
+                tag_obj = Tag(tag[0], tag[1])
+                
+                # Устанавлием новое значение
+                if tag_obj in ds:
+                    ds[tag_obj].value = value
+                else:
+                    # Если тега нет, добавляем его
+                    ds.add_new(tag_obj, vr, value)
+            
+            # Сохраняем файл
+            ds.save_as(save_path)
+            QMessageBox.information(self, "Success", "DICOM file with extracted metadata saved successfully!")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save DICOM: {str(e)}")
     
     def display_extracted_metadata(self, metadata):
         self.extracted_table.setRowCount(len(metadata))
