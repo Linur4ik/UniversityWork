@@ -60,6 +60,11 @@ class DICOMSteganographyApp(QMainWindow):
         self.tabs.addTab(self.view_tab, "Image Viewer")
         self.setup_view_tab()
 
+        self.pacs_tab = QWidget()
+        self.tabs.addTab(self.pacs_tab, "PACS Send/Receive")
+
+        
+
     def setup_embed_tab(self):
         """Настраивает вкладку встраивания данных (Embed Data),
         включая выбор DICOM-файла, отображение информации, 

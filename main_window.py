@@ -12,7 +12,7 @@ from pydicom.tag import Tag
 from dicom_utils import FORBIDDEN_TAGS, SUPPORTED_VR
 from steganography import embed_encrypted_metadata, extract_decrypted_metadata
 from read import read_shutter_parameters
-from tabs import EmbedTab, ExtractTab, ViewTab
+from tabs import EmbedTab, ExtractTab, ViewTab, PACSTab
 
 
 class DICOMSteganographyApp(QMainWindow):
@@ -43,11 +43,13 @@ class DICOMSteganographyApp(QMainWindow):
         self.embed_tab = EmbedTab(self)
         self.extract_tab = ExtractTab(self)
         self.view_tab = ViewTab(self)
+        self.pacs_tab = PACSTab(self)
 
         # Добавляем вкладки
         self.tabs.addTab(self.embed_tab, "Embed Data")
         self.tabs.addTab(self.extract_tab, "Extract Data")
         self.tabs.addTab(self.view_tab, "Image Viewer")
+        self.tabs.addTab(self.pacs_tab, "PACS Send/Receive")
 
     def setup_connections(self):
         """Настраивает связи между виджетами."""

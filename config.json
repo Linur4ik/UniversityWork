@@ -1,0 +1,16 @@
+{
+    "servers": [
+        {
+            "name": "Пример сервера",
+            "aetitle": "PACS_SERVER",
+            "ip": "127.0.0.1",
+            "port": 11112
+        },
+        {
+            "name": "test",
+            "aetitle": "PACS_SERVER",
+            "ip": "127.0.0.1",
+            "port": 11113
+        }
+    ]
+}
