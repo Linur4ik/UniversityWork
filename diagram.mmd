@@ -1,0 +1,59 @@
+flowchart TD
+    %% Стили
+    classDef ui fill:#e6f2ff,stroke:#3399ff,stroke-width:2px;
+    classDef core fill:#fff0e6,stroke:#ff9900,stroke-width:2px;
+    classDef io fill:#e6ffe6,stroke:#33cc33,stroke-width:2px;
+    classDef module fill:#ffffff,stroke:#333,stroke-width:1px;
+    classDef test fill:#ffffcc,stroke:#999900,stroke-width:1px;
+
+    %% UI
+    subgraph UI["Интерфейс"]
+        direction TB
+        GUI["gui.py DICOMSteganographyApp"]:::module
+    end
+    class UI ui;
+
+    %% Core
+    subgraph Core["Основная логика"]
+        direction TB
+        STG["steganography.py<br/>Управление процессом"]:::module
+        CRY["cryptFunc.py<br/>AES-128 шифрование"]:::module
+        GEN["generate.py<br/>Генератор масок"]:::module
+        WR["write.py<br/>Запись битов"]:::module
+        RD["read.py<br/>Чтение битов"]:::module
+        OP["operation.py<br/>Сериализация"]:::module
+        UTIL["dicom_utils.py<br/>DICOM утилиты"]:::module
+    end
+    class Core core;
+
+    %% IO
+    subgraph IO["Работа с файлами"]
+        direction TB
+        DCM["DICOM файлы"]:::module
+    end
+    class IO io;
+
+    %% Точка входа
+    MAIN["main.py<br/>Запуск приложения"]:::module
+
+    %% Основные связи
+    MAIN --- GUI
+    GUI ---|"Запрос операций"| STG
+    STG ---|"Шифрование данных"| CRY
+    STG ---|"Генерация маски"| GEN
+    STG ---|"Запись данных"| WR
+    STG ---|"Чтение данных"| RD
+    STG ---|"Управление данными"| OP
+    STG ---|"Обновление шторки"| UTIL
+
+    %% Вспомогательные связи
+    GEN ---|"Маска записи"| WR
+    RD ---|"Сырые данные"| OP
+    OP ---|"Десериализация"| CRY
+    CRY ---|"Шифрованные данные"| OP
+    WR ---|"Запись"| DCM
+    RD ---|"Чтение"| DCM
+    UTIL ---|"Вспомогательные функции"| DCM
+    GUI ---|"Чтение шторки"| RD
+    GUI ---|"Утилиты"| UTIL
+
