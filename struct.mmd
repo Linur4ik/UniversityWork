@@ -1,0 +1,58 @@
+flowchart TD
+    %% Стили
+    classDef entry fill:#ffebcc,stroke:#ff9900,stroke-width:3px;
+    classDef ui fill:#e6f2ff,stroke:#3399ff,stroke-width:2px;
+    classDef core fill:#fff0e6,stroke:#ff9900,stroke-width:2px;
+    classDef io fill:#e6ffe6,stroke:#33cc33,stroke-width:2px;
+    classDef tab fill:#e6f7ff,stroke:#66b3ff,stroke-width:1px;
+
+    %% Структура приложения
+    MAIN["main.py<br/>Точка входа<br/>QApplication"]:::entry
+    
+    MAIN_WINDOW["main_window.py<br/>DICOMSteganographyApp<br/>Главное окно"]:::ui
+    
+    subgraph TABS["Вкладки приложения"]
+        direction LR
+        EMBED["embed_tab.py<br/>EmbedTab"]:::tab
+        EXTRACT["extract_tab.py<br/>ExtractTab"]:::tab
+        VIEW["view_tab.py<br/>ViewTab"]:::tab
+        PACS["pacs_tab.py<br/>PACSTab"]:::tab
+    end
+    
+    subgraph CORE["Основные модули"]
+        STEG["steganography.py"]:::core
+        CRYPT["cryptFunc.py"]:::core
+        GENERATE["generate.py"]:::core
+        WRITE["write.py"]:::core
+        READ["read.py"]:::core
+        OPERATION["operation.py"]:::core
+        DICOM_UTILS["dicom_utils.py"]:::core
+    end
+    
+    subgraph EXTERNAL["Внешние зависимости"]
+        DICOM["DICOM файлы"]:::io
+        LIBRARIES["PyQt5, pydicom,<br/>numpy, cryptography"]:::io
+    end
+
+    %% Связи
+    MAIN --> MAIN_WINDOW
+    MAIN_WINDOW --> TABS
+    
+    TABS -- "использует" --> CORE
+    TABS -- "работает с" --> DICOM
+    
+    STEG -- "использует" --> CRYPT
+    STEG -- "использует" --> GENERATE
+    STEG -- "использует" --> WRITE
+    STEG -- "использует" --> READ
+    STEG -- "использует" --> OPERATION
+    
+    CORE -- "зависит от" --> LIBRARIES
+    
+    %% Легенда
+    subgraph LEGEND ["Легенда"]
+        L1[Точка входа]:::entry
+        L2[Интерфейс]:::ui
+        L3[Основная логика]:::core
+        L4[Данные/зависимости]:::io
+    end

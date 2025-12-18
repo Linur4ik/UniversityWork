@@ -1,0 +1,59 @@
+flowchart TD
+    %% Стили
+    classDef ui fill:#e6f2ff,stroke:#3399ff,stroke-width:2px;
+    classDef process fill:#fff0e6,stroke:#ff9900,stroke-width:2px;
+    classDef data fill:#e6ffe6,stroke:#33cc33,stroke-width:2px;
+    classDef encryption fill:#f9e6ff,stroke:#9933cc,stroke-width:2px;
+
+    %% Процесс встраивания
+    START[Пользовательский интерфейс<br/>EmbedTab]:::ui
+    
+    subgraph PREPARE["Подготовка данных"]
+        P1["Выбор DICOM файла"]:::process
+        P2["Чтение параметров шторки"]:::process
+        P3["Выбор метаданных для скрытия"]:::process
+        P4["Настройка параметров шифрования"]:::process
+    end
+    
+    subgraph PROCESS["Обработка данных"]
+        SERIALIZE["Сериализация метаданных<br/>operation.py"]:::process
+        ENCRYPT["Шифрование данных<br/>cryptFunc.py"]:::encryption
+        GENERATE["Генерация маски<br/>generate.py"]:::process
+    end
+    
+    subgraph EMBED["Встраивание в изображение"]
+        WRITE["Запись битов в маску<br/>write.py"]:::process
+        UPDATE["Обновление DICOM заголовков<br/>dicom_utils.py"]:::process
+    end
+    
+    subgraph OUTPUT["Результат"]
+        FILE["Модифицированный<br/>DICOM файл"]:::data
+        IMAGE["Обновленное изображение<br/>во ViewTab"]:::data
+    end
+
+    %% Поток данных
+    START --> PREPARE
+    PREPARE --> SERIALIZE
+    SERIALIZE --> ENCRYPT
+    ENCRYPT --> GENERATE
+    GENERATE --> WRITE
+    WRITE --> UPDATE
+    UPDATE --> FILE
+    UPDATE --> IMAGE
+    
+    %% Входные данные
+    DICOM_SOURCE["Исходный<br/>DICOM файл"]:::data --> P1
+    KEY["Ключ шифрования<br/>(опционально)"]:::data --> P4
+    METADATA["Метаданные<br/>для скрытия"]:::data --> P3
+    
+    %% Вспомогательные связи
+    P2 -->|"параметры шторки"| GENERATE
+    ENCRYPT -->|"шифрованный поток"| WRITE
+    
+    %% Легенда
+    subgraph LEGEND ["Легенда"]
+        L1[Пользовательский интерфейс]:::ui
+        L2[Процесс обработки]:::process
+        L3[Шифрование]:::encryption
+        L4[Данные/файлы]:::data
+    end
