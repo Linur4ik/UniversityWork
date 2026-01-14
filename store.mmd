@@ -1,0 +1,27 @@
+sequenceDiagram
+    participant A as Устройство A
+    participant B as Устройство B
+
+    Note over A: Начало запроса
+    A->>B: Open Association
+    B-->>A: Association Established
+    A->>B: DIMSE C-Store Command Request
+    
+    Note over A,B: Возможные сценарии:
+    
+    %% Сценарий прерывания
+    Note over A: Сценарий 1 (Прерывание)
+    rect rgb(255, 200, 200)
+        A->>B: C-Cancel Request
+        B-->>A: Cancel Acknowledged
+        B-->>A: Association Terminated
+    end
+    
+    %% Сценарий успешного завершения  
+    Note over A: Сценарий 2 (Успешно)
+    rect rgb(200, 255, 200) 
+        B-->>A: DIMSE C-Store Command Response
+        B-->>A: Association Terminated
+    end
+    
+    Note over A: Завершение запроса
